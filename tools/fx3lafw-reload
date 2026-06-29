@@ -21,6 +21,14 @@ run_show() {
     "$sigrok_cli" -l 5 -d fx3lafw --show 2>&1
 }
 
+show_has_expected_fw() {
+    grep -q "firmware $expect_fw" <<<"$1"
+}
+
+print_show_summary() {
+    grep -E 'Uploading firmware|Firmware upload done|Firmware upload was not needed|Opened device .*firmware' <<<"$1" || true
+}
+
 if [[ -x "$reset_tool" ]]; then
     "$reset_tool" "$@" || true
 else
@@ -34,18 +42,34 @@ set +e
 first_show="$(run_show)"
 first_status=$?
 set -e
-printf "%s\n" "$first_show"
 
-if [[ $first_status -eq 0 ]] && grep -q "firmware $expect_fw" <<<"$first_show"; then
+if [[ $first_status -eq 0 ]] && show_has_expected_fw "$first_show"; then
+    printf "%s\n" "$first_show"
     exit 0
+fi
+
+summarized_first=0
+if grep -q "Firmware upload done." <<<"$first_show" &&
+        grep -q "Device failed to renumerate." <<<"$first_show"; then
+    print_show_summary "$first_show"
+    echo "Post-upload same-process re-enumeration timed out; retrying fresh scan."
+    summarized_first=1
+else
+    printf "%s\n" "$first_show"
 fi
 
 sleep "$settle"
 
+set +e
 second_show="$(run_show)"
+second_status=$?
+set -e
 printf "%s\n" "$second_show"
 
-if ! grep -q "firmware $expect_fw" <<<"$second_show"; then
+if [[ $second_status -ne 0 ]] || ! show_has_expected_fw "$second_show"; then
+    if [[ "$summarized_first" == "1" ]]; then
+        printf "\nFirst scan full output:\n%s\n" "$first_show" >&2
+    fi
     echo "Expected firmware $expect_fw after reload." >&2
     exit 1
 fi

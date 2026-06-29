@@ -33,6 +33,9 @@ tools/fx3lafw-reset 20.45
 
 `tools/fx3lafw-reload` wraps the reset command and runs `sigrok-cli` in fresh
 processes to upload the firmware again and confirm the expected firmware version.
+On macOS/libusb, the first post-upload process can time out waiting for
+same-process re-enumeration; the helper retries with a fresh scan and only
+passes after that scan reports the expected firmware.
 Set `FX3_SIGROK_CLI`, `FX3_PREFIX`, or `FX3_EXPECT_FW` when using a non-default
 test install.
 
