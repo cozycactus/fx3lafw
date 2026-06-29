@@ -3,6 +3,7 @@
 #define CMD_GET_REVID_VERSION		0xb2
 #define CMD_STOP			0xb3
 #define CMD_GET_ACQ_STATUS		0xb4
+#define CMD_RESET			0xb5
 
 #define CMD_START_FLAGS_SUPERWIDE_POS   3
 #define CMD_START_FLAGS_CLK_CTL2_POS    4

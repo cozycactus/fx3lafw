@@ -192,19 +192,17 @@ void Fx3DmaSimpleTransferWrite(uint32_t socket, uint16_t descriptor,
 void Fx3DmaStartProducer(uint32_t socket, uint16_t descriptor,
 			 uint32_t size, uint32_t count)
 {
-  Fx3DmaTransferStart(socket, descriptor,
-		      FX3_SCK_STATUS_SUSP_TRANS	|
-		      FX3_SCK_STATUS_EN_PROD_EVENTS |
-		      FX3_SCK_STATUS_TRUNCATE,
-		      size, count);
+	Fx3DmaTransferStart(socket, descriptor,
+			    FX3_SCK_STATUS_EN_PROD_EVENTS |
+			    FX3_SCK_STATUS_TRUNCATE,
+			    size, count);
 }
 
 void Fx3DmaStartConsumer(uint32_t socket, uint16_t descriptor,
 			 uint32_t size, uint32_t count)
 {
-  Fx3DmaTransferStart(socket, descriptor,
-		      FX3_SCK_STATUS_SUSP_TRANS	|
-		      FX3_SCK_STATUS_EN_CONS_EVENTS |
-		      FX3_SCK_STATUS_TRUNCATE,
-		      size, count);
+	Fx3DmaTransferStart(socket, descriptor,
+			    FX3_SCK_STATUS_EN_CONS_EVENTS |
+			    FX3_SCK_STATUS_TRUNCATE,
+			    size, count);
 }

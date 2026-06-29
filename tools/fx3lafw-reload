@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+reset_tool="${FX3_RESET_TOOL:-$repo_dir/tools/fx3lafw-reset}"
+sigrok_cli="${FX3_SIGROK_CLI:-sigrok-cli}"
+fx3_prefix="${FX3_PREFIX:-}"
+expect_fw="${FX3_EXPECT_FW:-1.10}"
+settle="${FX3_RELOAD_SETTLE_SECONDS:-1}"
+
+if [[ -n "$fx3_prefix" ]]; then
+    if [[ -d "$fx3_prefix/lib" ]]; then
+        export DYLD_LIBRARY_PATH="$fx3_prefix/lib${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}"
+    fi
+    if [[ -d "$fx3_prefix/share/sigrok-firmware" ]]; then
+        export SIGROK_FIRMWARE_DIR="$fx3_prefix/share/sigrok-firmware"
+    fi
+fi
+
+run_show() {
+    "$sigrok_cli" -l 5 -d fx3lafw --show 2>&1
+}
+
+if [[ -x "$reset_tool" ]]; then
+    "$reset_tool" "$@" || true
+else
+    echo "Reset helper is missing or not executable: $reset_tool" >&2
+    exit 1
+fi
+
+sleep "$settle"
+
+set +e
+first_show="$(run_show)"
+first_status=$?
+set -e
+printf "%s\n" "$first_show"
+
+if [[ $first_status -eq 0 ]] && grep -q "firmware $expect_fw" <<<"$first_show"; then
+    exit 0
+fi
+
+sleep "$settle"
+
+second_show="$(run_show)"
+printf "%s\n" "$second_show"
+
+if ! grep -q "firmware $expect_fw" <<<"$second_show"; then
+    echo "Expected firmware $expect_fw after reload." >&2
+    exit 1
+fi

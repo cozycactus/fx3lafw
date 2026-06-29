@@ -23,6 +23,19 @@ newlib.
 
 The firmware image can then be built using `make`.
 
+The optional host reset helper can be built with `make host-tools`. It sends the
+firmware `CMD_RESET` vendor request to a loaded `sigrok/fx3lafw` device:
+
+```
+tools/fx3lafw-reset
+tools/fx3lafw-reset 20.45
+```
+
+`tools/fx3lafw-reload` wraps the reset command and runs `sigrok-cli` in fresh
+processes to upload the firmware again and confirm the expected firmware version.
+Set `FX3_SIGROK_CLI`, `FX3_PREFIX`, or `FX3_EXPECT_FW` when using a non-default
+test install.
+
 
 License
 -------

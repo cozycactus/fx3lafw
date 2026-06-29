@@ -32,6 +32,19 @@ static void VendorCommand(uint8_t request_type, uint8_t request, uint16_t value,
     stop_acquisition();
     Fx3UsbUnstallEp0(s);
     return;
+  case CMD_RESET:
+    if (request_type !=
+	(FX3_USB_REQTYPE_OUT | FX3_USB_REQTYPE_TYPE_VENDOR | FX3_USB_REQTYPE_TGT_DEVICE))
+      goto stall;
+    if (value != 0 || index != 0 || length != 0)
+      goto stall;
+    Fx3UartTxString("CMD_RESET\n");
+    stop_acquisition();
+    Fx3UsbUnstallEp0(s);
+    Fx3UartTxFlush();
+    Fx3UtilDelayUs(100000);
+    Fx3GctlHardReset();
+    return;
   case CMD_START:
     if (request_type !=
 	(FX3_USB_REQTYPE_OUT | FX3_USB_REQTYPE_TYPE_VENDOR | FX3_USB_REQTYPE_TGT_DEVICE))
@@ -85,7 +98,7 @@ static void VendorCommand(uint8_t request_type, uint8_t request, uint16_t value,
     Fx3UartTxString("CMD_GET_FW_VERSION\n");
     volatile struct version_info *vinfo = (volatile struct version_info *)DmaBuf;
     vinfo->major = 1;
-    vinfo->minor = 8;
+    vinfo->minor = 10;
     Fx3CacheCleanDCacheEntry(DmaBuf);
     Fx3UsbUnstallEp0(s);
     Fx3UsbDmaDataIn(0, DmaBuf, sizeof(struct version_info));

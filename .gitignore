@@ -7,3 +7,4 @@
 *.fw
 tags
 *gitignore
+/tools/fx3lafw-reset
