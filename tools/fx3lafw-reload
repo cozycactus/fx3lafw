@@ -5,7 +5,7 @@ repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 reset_tool="${FX3_RESET_TOOL:-$repo_dir/tools/fx3lafw-reset}"
 sigrok_cli="${FX3_SIGROK_CLI:-sigrok-cli}"
 fx3_prefix="${FX3_PREFIX:-}"
-expect_fw="${FX3_EXPECT_FW:-1.16}"
+expect_fw="${FX3_EXPECT_FW:-1.18}"
 settle="${FX3_RELOAD_SETTLE_SECONDS:-1}"
 
 if [[ -n "$fx3_prefix" ]]; then

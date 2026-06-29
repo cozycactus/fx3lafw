@@ -219,8 +219,20 @@ static void setup_descriptors(void)
   }
 }
 
-void start_acquisition(uint8_t bits, uint32_t delay, uint16_t clock_divisor_x2)
+void start_acquisition(uint8_t bits, uint32_t delay, uint16_t clock_divisor_x2,
+		       uint8_t external_clock, uint8_t invert_clock)
 {
+  registers.config &= ~(FX3_GPIF_CONFIG_CLK_SOURCE |
+			      FX3_GPIF_CONFIG_CLK_INVERT |
+			      FX3_GPIF_CONFIG_CLK_OUT |
+			      FX3_GPIF_CONFIG_SYNC);
+  if (external_clock)
+    registers.config |= FX3_GPIF_CONFIG_SYNC;
+  else
+    registers.config |= FX3_GPIF_CONFIG_CLK_SOURCE;
+  if (invert_clock)
+    registers.config |= FX3_GPIF_CONFIG_CLK_INVERT;
+
   registers.bus_config &= ~FX3_GPIF_BUS_CONFIG_BUS_WIDTH_MASK;
   registers.bus_config |= ((bits >> 3) - 1) << FX3_GPIF_BUS_CONFIG_BUS_WIDTH_SHIFT;
 

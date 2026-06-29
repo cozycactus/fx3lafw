@@ -86,7 +86,9 @@ static void VendorCommand(uint8_t request_type, uint8_t request, uint16_t value,
       break;
     }
 
-    start_acquisition(bits, sample_delay, clock_divisor_x2);
+    start_acquisition(bits, sample_delay, clock_divisor_x2,
+		      (flags & CMD_START_FLAGS_EXT_CLOCK) != 0,
+		      (flags & CMD_START_FLAGS_CLK_INVERT) != 0);
 
     return;
   case CMD_GET_FW_VERSION:
@@ -98,7 +100,7 @@ static void VendorCommand(uint8_t request_type, uint8_t request, uint16_t value,
     Fx3UartTxString("CMD_GET_FW_VERSION\n");
     volatile struct version_info *vinfo = (volatile struct version_info *)DmaBuf;
     vinfo->major = 1;
-    vinfo->minor = 16;
+    vinfo->minor = 18;
     Fx3CacheCleanDCacheEntry(DmaBuf);
     Fx3UsbUnstallEp0(s);
     Fx3UsbDmaDataIn(0, DmaBuf, sizeof(struct version_info));
