@@ -2,7 +2,13 @@
 #include <bsp/dma.h>
 #include <bsp/usb.h>
 #include <bsp/uart.h>
+#include <bsp/regaccess.h>
+#include <rdb/dma.h>
+#include <rdb/gpif.h>
+#include <rdb/pib.h>
 #include <stdio.h>
+
+#include "command.h"
 
 #define NUM_DMA_BUFFERS 10
 #define DMA_BUFFER_SIZE 6144 /* Needs to be divisable by 12 */
@@ -217,6 +223,25 @@ void setup_acquisition(void)
   unsigned i;
   for(i=0; i<NUM_DMA_BUFFERS; i++)
     dma_buffer_descriptor[i] = Fx3DmaAllocateDescriptor();
+}
+
+void get_acquisition_status(volatile struct acquisition_status *status)
+{
+  uint8_t state;
+
+  status->gpif_stat = Fx3GpifGetStat(&state);
+  status->gpif_state = state;
+  status->reserved = 0;
+  status->gpif_status = Fx3ReadReg32(FX3_GPIF_STATUS);
+  status->gpif_intr = Fx3ReadReg32(FX3_GPIF_INTR);
+  status->pib_intr = Fx3ReadReg32(FX3_PIB_INTR);
+  status->pib_error = Fx3ReadReg32(FX3_PIB_ERROR);
+  status->pib_sck0_status = Fx3ReadReg32(FX3_PIB_DMA_SCK(0) + FX3_SCK_STATUS);
+  status->pib_sck0_intr = Fx3ReadReg32(FX3_PIB_DMA_SCK(0) + FX3_SCK_INTR);
+  status->pib_sck1_status = Fx3ReadReg32(FX3_PIB_DMA_SCK(1) + FX3_SCK_STATUS);
+  status->pib_sck1_intr = Fx3ReadReg32(FX3_PIB_DMA_SCK(1) + FX3_SCK_INTR);
+  status->uib_sck2_status = Fx3ReadReg32(FX3_UIB_DMA_SCK(2) + FX3_SCK_STATUS);
+  status->uib_sck2_intr = Fx3ReadReg32(FX3_UIB_DMA_SCK(2) + FX3_SCK_INTR);
 }
 
 void poll_acquisition(void)

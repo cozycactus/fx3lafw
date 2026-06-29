@@ -16,7 +16,7 @@
 
 #define CLOCK_DIVISOR_X2_FOR(f) ((SYS_CLK + (f)/4) / ((f)/2))
 
-static volatile uint8_t DmaBuf[32] __attribute__((aligned(32)));
+static volatile uint8_t DmaBuf[64] __attribute__((aligned(32)));
 
 static void VendorCommand(uint8_t request_type, uint8_t request, uint16_t value,
 			  uint16_t index, uint16_t length, Fx3UsbSpeed_t s)
@@ -77,10 +77,25 @@ static void VendorCommand(uint8_t request_type, uint8_t request, uint16_t value,
     Fx3UartTxString("CMD_GET_FW_VERSION\n");
     volatile struct version_info *vinfo = (volatile struct version_info *)DmaBuf;
     vinfo->major = 1;
-    vinfo->minor = 5;
+    vinfo->minor = 6;
     Fx3CacheCleanDCacheEntry(DmaBuf);
     Fx3UsbUnstallEp0(s);
     Fx3UsbDmaDataIn(0, DmaBuf, sizeof(struct version_info));
+    return;
+  case CMD_GET_ACQ_STATUS:
+    if (request_type !=
+	(FX3_USB_REQTYPE_IN | FX3_USB_REQTYPE_TYPE_VENDOR | FX3_USB_REQTYPE_TGT_DEVICE))
+      goto stall;
+    if (value != 0 || index != 0 || length != sizeof(struct acquisition_status))
+      goto stall;
+    Fx3UartTxString("CMD_GET_ACQ_STATUS\n");
+    volatile struct acquisition_status *status =
+      (volatile struct acquisition_status *)DmaBuf;
+    get_acquisition_status(status);
+    Fx3CacheCleanDCacheEntry(DmaBuf);
+    Fx3CacheCleanDCacheEntry(DmaBuf + 32);
+    Fx3UsbUnstallEp0(s);
+    Fx3UsbDmaDataIn(0, DmaBuf, sizeof(struct acquisition_status));
     return;
   case CMD_GET_REVID_VERSION:
     if (request_type !=

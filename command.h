@@ -2,6 +2,7 @@
 #define CMD_START			0xb1
 #define CMD_GET_REVID_VERSION		0xb2
 #define CMD_STOP			0xb3
+#define CMD_GET_ACQ_STATUS		0xb4
 
 #define CMD_START_FLAGS_SUPERWIDE_POS   3
 #define CMD_START_FLAGS_CLK_CTL2_POS    4
@@ -27,4 +28,20 @@ struct cmd_start_acquisition {
         uint8_t flags;
         uint8_t sample_delay_h;
         uint8_t sample_delay_l;
+};
+
+struct acquisition_status {
+        uint8_t gpif_stat;
+        uint8_t gpif_state;
+        uint16_t reserved;
+        uint32_t gpif_status;
+        uint32_t gpif_intr;
+        uint32_t pib_intr;
+        uint32_t pib_error;
+        uint32_t pib_sck0_status;
+        uint32_t pib_sck0_intr;
+        uint32_t pib_sck1_status;
+        uint32_t pib_sck1_intr;
+        uint32_t uib_sck2_status;
+        uint32_t uib_sck2_intr;
 };
