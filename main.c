@@ -16,7 +16,7 @@
 
 #define CLOCK_DIVISOR_X2_FOR(f) ((SYS_CLK + (f)/4) / ((f)/2))
 
-static volatile uint8_t DmaBuf[64] __attribute__((aligned(32)));
+static volatile uint8_t DmaBuf[128] __attribute__((aligned(32)));
 
 static void VendorCommand(uint8_t request_type, uint8_t request, uint16_t value,
 			  uint16_t index, uint16_t length, Fx3UsbSpeed_t s)
@@ -98,7 +98,7 @@ static void VendorCommand(uint8_t request_type, uint8_t request, uint16_t value,
     Fx3UartTxString("CMD_GET_FW_VERSION\n");
     volatile struct version_info *vinfo = (volatile struct version_info *)DmaBuf;
     vinfo->major = 1;
-    vinfo->minor = 10;
+    vinfo->minor = 13;
     Fx3CacheCleanDCacheEntry(DmaBuf);
     Fx3UsbUnstallEp0(s);
     Fx3UsbDmaDataIn(0, DmaBuf, sizeof(struct version_info));
@@ -115,6 +115,8 @@ static void VendorCommand(uint8_t request_type, uint8_t request, uint16_t value,
     get_acquisition_status(status);
     Fx3CacheCleanDCacheEntry(DmaBuf);
     Fx3CacheCleanDCacheEntry(DmaBuf + 32);
+    Fx3CacheCleanDCacheEntry(DmaBuf + 64);
+    Fx3CacheCleanDCacheEntry(DmaBuf + 96);
     Fx3UsbUnstallEp0(s);
     Fx3UsbDmaDataIn(0, DmaBuf, sizeof(struct acquisition_status));
     return;

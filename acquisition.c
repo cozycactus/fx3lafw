@@ -64,7 +64,7 @@ static const Fx3GpifWaveform_t waveforms[] = {
 		     FX3_GPIF_BETA_WQ_PUSH |
 		     FX3_GPIF_BETA_COUNT_DATA |
 		     FX3_GPIF_BETA_COUNT_ADDR,
-		     0, 0), .left = 16, .right=6 },
+		     0, 0), .left = 17, .right=6 },
 
   /* Delay == 1 */
 
@@ -83,7 +83,7 @@ static const Fx3GpifWaveform_t waveforms[] = {
 		      FX3_GPIF_BETA_THREAD_0 |
 		      FX3_GPIF_BETA_WQ_PUSH |
 		      FX3_GPIF_BETA_COUNT_ADDR,
-		      0, 0), .left = 16, .right=9 },
+		      0, 0), .left = 18, .right=9 },
 
   /* Thread 1 */
 
@@ -95,7 +95,7 @@ static const Fx3GpifWaveform_t waveforms[] = {
 		      FX3_GPIF_BETA_THREAD_1 |
 		      FX3_GPIF_BETA_WQ_PUSH |
 		      FX3_GPIF_BETA_COUNT_ADDR,
-		      0, 0), .left = 16, .right=11 },
+		      0, 0), .left = 19, .right=11 },
 
   /* Delay == 0 */
 
@@ -112,7 +112,7 @@ static const Fx3GpifWaveform_t waveforms[] = {
 		      0, FX3_GPIF_ALPHA_SAMPLE_DIN,
 		      FX3_GPIF_BETA_THREAD_0 |
 		      FX3_GPIF_BETA_WQ_PUSH |
-		      FX3_GPIF_BETA_COUNT_ADDR, 0, 0), .left = 16, .right = 15 },
+		      FX3_GPIF_BETA_COUNT_ADDR, 0, 0), .left = 20, .right = 15 },
 
   /* Thread 1 */
 
@@ -122,11 +122,26 @@ static const Fx3GpifWaveform_t waveforms[] = {
 		      0, FX3_GPIF_ALPHA_SAMPLE_DIN,
 		      FX3_GPIF_BETA_THREAD_1 |
 		      FX3_GPIF_BETA_WQ_PUSH |
-		      FX3_GPIF_BETA_COUNT_ADDR, 0, 0), .left = 16, .right = 14 },
+		      FX3_GPIF_BETA_COUNT_ADDR, 0, 0), .left = 21, .right = 14 },
+
+  /* Wait for DMA readiness without repeating WQ_PUSH or sample/count side effects. */
+
+  [16] = { GPIF_STATE(16, FX3_GPIF_LAMBDA_INDEX_DMA_RDY, 0, 0, 0, 3, 1, 0, 0,
+		      FX3_GPIF_BETA_THREAD_0, 0, 0), .left = 16, .right = 4 },
+  [17] = { GPIF_STATE(17, FX3_GPIF_LAMBDA_INDEX_DMA_RDY, 0, 0, 0, 3, 1, 0, 0,
+		      FX3_GPIF_BETA_THREAD_1, 0, 0), .left = 17, .right = 6 },
+  [18] = { GPIF_STATE(18, FX3_GPIF_LAMBDA_INDEX_DMA_RDY, 0, 0, 0, 3, 1, 0, 0,
+		      FX3_GPIF_BETA_THREAD_0, 0, 0), .left = 18, .right = 9 },
+  [19] = { GPIF_STATE(19, FX3_GPIF_LAMBDA_INDEX_DMA_RDY, 0, 0, 0, 3, 1, 0, 0,
+		      FX3_GPIF_BETA_THREAD_1, 0, 0), .left = 19, .right = 11 },
+  [20] = { GPIF_STATE(20, FX3_GPIF_LAMBDA_INDEX_DMA_RDY, 0, 0, 0, 3, 1, 0, 0,
+		      FX3_GPIF_BETA_THREAD_0, 0, 0), .left = 20, .right = 15 },
+  [21] = { GPIF_STATE(21, FX3_GPIF_LAMBDA_INDEX_DMA_RDY, 0, 0, 0, 3, 1, 0, 0,
+		      FX3_GPIF_BETA_THREAD_1, 0, 0), .left = 21, .right = 14 },
 
   /* Done */
 
-  [16] = { GPIF_STATE(16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0), .left = 0 },
+  [22] = { GPIF_STATE(22, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0), .left = 0 },
 };
 
 static Fx3GpifRegisters_t registers = {
@@ -151,12 +166,25 @@ static Fx3GpifRegisters_t registers = {
 		       (1UL << FX3_GPIF_THREAD_CONFIG_WATERMARK_SHIFT) |
 		       (4UL << FX3_GPIF_THREAD_CONFIG_BURST_SIZE_SHIFT) |
 		       (1UL << FX3_GPIF_THREAD_CONFIG_THREAD_SOCK_SHIFT)),
-  .waveform_switch = ((16UL << FX3_GPIF_WAVEFORM_SWITCH_DONE_STATE_SHIFT) |
+  .waveform_switch = ((22UL << FX3_GPIF_WAVEFORM_SWITCH_DONE_STATE_SHIFT) |
 		      FX3_GPIF_WAVEFORM_SWITCH_DONE_ENABLE),
 };
 
 static volatile uint8_t gpif_buf[NUM_DMA_BUFFERS][DMA_BUFFER_SIZE] __attribute__((aligned(32)));
 static uint32_t dma_buffer_descriptor[NUM_DMA_BUFFERS];
+static uint32_t pause_count;
+static uint8_t pause_gpif_stat;
+static uint8_t pause_gpif_state;
+static uint32_t pause_gpif_status;
+static uint32_t pause_pib_sck0_status;
+static uint32_t pause_pib_sck0_dscr;
+static uint32_t pause_pib_sck0_count;
+static uint32_t pause_pib_sck1_status;
+static uint32_t pause_pib_sck1_dscr;
+static uint32_t pause_pib_sck1_count;
+static uint32_t pause_uib_sck2_status;
+static uint32_t pause_uib_sck2_dscr;
+static uint32_t pause_uib_sck2_count;
 
 static void uart_tx_u8_dec(uint8_t value)
 {
@@ -203,6 +231,7 @@ void start_acquisition(uint8_t bits, uint32_t delay, uint16_t clock_divisor_x2)
   registers.addr_count_limit = samples_per_buffer;
 
   stop_acquisition();
+  pause_count = 0;
   setup_descriptors();
 
   Fx3GpifPibStart(clock_divisor_x2);
@@ -238,16 +267,50 @@ void get_acquisition_status(volatile struct acquisition_status *status)
   status->pib_error = Fx3ReadReg32(FX3_PIB_ERROR);
   status->pib_sck0_status = Fx3ReadReg32(FX3_PIB_DMA_SCK(0) + FX3_SCK_STATUS);
   status->pib_sck0_intr = Fx3ReadReg32(FX3_PIB_DMA_SCK(0) + FX3_SCK_INTR);
+  status->pib_sck0_dscr = Fx3ReadReg32(FX3_PIB_DMA_SCK(0) + FX3_SCK_DSCR);
+  status->pib_sck0_count = Fx3ReadReg32(FX3_PIB_DMA_SCK(0) + FX3_SCK_COUNT);
   status->pib_sck1_status = Fx3ReadReg32(FX3_PIB_DMA_SCK(1) + FX3_SCK_STATUS);
   status->pib_sck1_intr = Fx3ReadReg32(FX3_PIB_DMA_SCK(1) + FX3_SCK_INTR);
+  status->pib_sck1_dscr = Fx3ReadReg32(FX3_PIB_DMA_SCK(1) + FX3_SCK_DSCR);
+  status->pib_sck1_count = Fx3ReadReg32(FX3_PIB_DMA_SCK(1) + FX3_SCK_COUNT);
   status->uib_sck2_status = Fx3ReadReg32(FX3_UIB_DMA_SCK(2) + FX3_SCK_STATUS);
   status->uib_sck2_intr = Fx3ReadReg32(FX3_UIB_DMA_SCK(2) + FX3_SCK_INTR);
+  status->uib_sck2_dscr = Fx3ReadReg32(FX3_UIB_DMA_SCK(2) + FX3_SCK_DSCR);
+  status->uib_sck2_count = Fx3ReadReg32(FX3_UIB_DMA_SCK(2) + FX3_SCK_COUNT);
+  status->pause_count = pause_count;
+  status->pause_gpif_stat = pause_gpif_stat;
+  status->pause_gpif_state = pause_gpif_state;
+  status->pause_reserved = 0;
+  status->pause_gpif_status = pause_gpif_status;
+  status->pause_pib_sck0_status = pause_pib_sck0_status;
+  status->pause_pib_sck0_dscr = pause_pib_sck0_dscr;
+  status->pause_pib_sck0_count = pause_pib_sck0_count;
+  status->pause_pib_sck1_status = pause_pib_sck1_status;
+  status->pause_pib_sck1_dscr = pause_pib_sck1_dscr;
+  status->pause_pib_sck1_count = pause_pib_sck1_count;
+  status->pause_uib_sck2_status = pause_uib_sck2_status;
+  status->pause_uib_sck2_dscr = pause_uib_sck2_dscr;
+  status->pause_uib_sck2_count = pause_uib_sck2_count;
 }
 
 void poll_acquisition(void)
 {
   uint8_t state;
-  if (Fx3GpifGetStat(&state) == FX3_GPIF_PAUSED) {
+  uint8_t gpif_stat = Fx3GpifGetStat(&state);
+  if (gpif_stat == FX3_GPIF_PAUSED) {
+    pause_count++;
+    pause_gpif_stat = gpif_stat;
+    pause_gpif_state = state;
+    pause_gpif_status = Fx3ReadReg32(FX3_GPIF_STATUS);
+    pause_pib_sck0_status = Fx3ReadReg32(FX3_PIB_DMA_SCK(0) + FX3_SCK_STATUS);
+    pause_pib_sck0_dscr = Fx3ReadReg32(FX3_PIB_DMA_SCK(0) + FX3_SCK_DSCR);
+    pause_pib_sck0_count = Fx3ReadReg32(FX3_PIB_DMA_SCK(0) + FX3_SCK_COUNT);
+    pause_pib_sck1_status = Fx3ReadReg32(FX3_PIB_DMA_SCK(1) + FX3_SCK_STATUS);
+    pause_pib_sck1_dscr = Fx3ReadReg32(FX3_PIB_DMA_SCK(1) + FX3_SCK_DSCR);
+    pause_pib_sck1_count = Fx3ReadReg32(FX3_PIB_DMA_SCK(1) + FX3_SCK_COUNT);
+    pause_uib_sck2_status = Fx3ReadReg32(FX3_UIB_DMA_SCK(2) + FX3_SCK_STATUS);
+    pause_uib_sck2_dscr = Fx3ReadReg32(FX3_UIB_DMA_SCK(2) + FX3_SCK_DSCR);
+    pause_uib_sck2_count = Fx3ReadReg32(FX3_UIB_DMA_SCK(2) + FX3_SCK_COUNT);
     Fx3UartTxString("GPIF paused state=");
     uart_tx_u8_dec(state);
     Fx3UartTxString(", stopping DMA\n");
