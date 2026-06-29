@@ -152,7 +152,7 @@ static Fx3GpifRegisters_t registers = {
 static volatile uint8_t gpif_buf[NUM_DMA_BUFFERS][DMA_BUFFER_SIZE] __attribute__((aligned(32)));
 static uint32_t dma_buffer_descriptor[NUM_DMA_BUFFERS];
 
-static void stop_acquisition(void)
+void stop_acquisition(void)
 {
   Fx3DmaAbortSocket(FX3_PIB_DMA_SCK(0));
   Fx3DmaAbortSocket(FX3_PIB_DMA_SCK(1));
