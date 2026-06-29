@@ -58,12 +58,20 @@ static void VendorCommand(uint8_t request_type, uint8_t request, uint16_t value,
     if (flags & (1<<CMD_START_FLAGS_SUPERWIDE_POS))
       bits += 16;
     uint16_t clock_divisor_x2;
-    if (flags & CMD_START_FLAGS_CLK_192MHZ)
+    switch (flags & CMD_START_FLAGS_CLK_SRC_MASK) {
+    case CMD_START_FLAGS_CLK_192MHZ:
       clock_divisor_x2 = CLOCK_DIVISOR_X2_FOR(192000000); /* 192 MHz */
-    else if (flags & CMD_START_FLAGS_CLK_48MHZ)
+      break;
+    case CMD_START_FLAGS_CLK_80MHZ:
+      clock_divisor_x2 = CLOCK_DIVISOR_X2_FOR(80000000); /* 80 MHz */
+      break;
+    case CMD_START_FLAGS_CLK_48MHZ:
       clock_divisor_x2 = CLOCK_DIVISOR_X2_FOR(48000000); /* 48 MHz */
-    else
+      break;
+    default:
       clock_divisor_x2 = CLOCK_DIVISOR_X2_FOR(30000000); /* 30 MHz */
+      break;
+    }
 
     start_acquisition(bits, sample_delay, clock_divisor_x2);
 
@@ -77,7 +85,7 @@ static void VendorCommand(uint8_t request_type, uint8_t request, uint16_t value,
     Fx3UartTxString("CMD_GET_FW_VERSION\n");
     volatile struct version_info *vinfo = (volatile struct version_info *)DmaBuf;
     vinfo->major = 1;
-    vinfo->minor = 7;
+    vinfo->minor = 8;
     Fx3CacheCleanDCacheEntry(DmaBuf);
     Fx3UsbUnstallEp0(s);
     Fx3UsbDmaDataIn(0, DmaBuf, sizeof(struct version_info));
