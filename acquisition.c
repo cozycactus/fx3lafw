@@ -152,6 +152,15 @@ static Fx3GpifRegisters_t registers = {
 static volatile uint8_t gpif_buf[NUM_DMA_BUFFERS][DMA_BUFFER_SIZE] __attribute__((aligned(32)));
 static uint32_t dma_buffer_descriptor[NUM_DMA_BUFFERS];
 
+static void uart_tx_u8_dec(uint8_t value)
+{
+  if (value >= 100)
+    Fx3UartTxChar('0' + value / 100);
+  if (value >= 10)
+    Fx3UartTxChar('0' + (value / 10) % 10);
+  Fx3UartTxChar('0' + value % 10);
+}
+
 void stop_acquisition(void)
 {
   Fx3DmaAbortSocket(FX3_PIB_DMA_SCK(0));
@@ -212,8 +221,11 @@ void setup_acquisition(void)
 
 void poll_acquisition(void)
 {
-  if (Fx3GpifGetStat(NULL) == FX3_GPIF_PAUSED) {
-    Fx3UartTxString("GPIF done, stopping DMA\n");
+  uint8_t state;
+  if (Fx3GpifGetStat(&state) == FX3_GPIF_PAUSED) {
+    Fx3UartTxString("GPIF paused state=");
+    uart_tx_u8_dec(state);
+    Fx3UartTxString(", stopping DMA\n");
     stop_acquisition();
   }
 }
