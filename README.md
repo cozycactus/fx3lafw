@@ -21,7 +21,26 @@ Building
 On Gentoo, use `crossdev -t arm-none-eabi` to build toolchain and
 newlib.
 
-The firmware image can then be built using `make`.
+On macOS, use a full Arm GNU Toolchain build that includes the
+`arm-none-eabi` newlib headers and libraries. The Homebrew
+`arm-none-eabi-gcc` formula can be built `--without-headers`, which is
+not enough for this firmware and fails while including standard headers
+such as `stdint.h`. The Arm GNU Toolchain package works; one no-sudo
+setup is to expand it under the home directory and put its tools ahead
+of Homebrew on `PATH`, for example:
+
+```
+~/.local/toolchains/arm-gnu-toolchain-14.2.rel1/bin/arm-none-eabi-gcc
+~/.local/toolchains/arm-gnu-toolchain-14.2.rel1/bin/arm-none-eabi-gdb
+```
+
+The firmware image can then be built using `make`. The host reset helper
+can be built at the same time:
+
+```
+make clean
+make -j4 all host-tools
+```
 
 The optional host reset helper can be built with `make host-tools`. It sends the
 firmware `CMD_RESET` vendor request to a loaded `sigrok/fx3lafw` device:
