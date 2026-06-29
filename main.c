@@ -77,7 +77,7 @@ static void VendorCommand(uint8_t request_type, uint8_t request, uint16_t value,
     Fx3UartTxString("CMD_GET_FW_VERSION\n");
     volatile struct version_info *vinfo = (volatile struct version_info *)DmaBuf;
     vinfo->major = 1;
-    vinfo->minor = 4;
+    vinfo->minor = 5;
     Fx3CacheCleanDCacheEntry(DmaBuf);
     Fx3UsbUnstallEp0(s);
     Fx3UsbDmaDataIn(0, DmaBuf, sizeof(struct version_info));
