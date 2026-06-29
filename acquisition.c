@@ -127,17 +127,17 @@ static const Fx3GpifWaveform_t waveforms[] = {
   /* Wait for DMA readiness without repeating WQ_PUSH or sample/count side effects. */
 
   [16] = { GPIF_STATE(16, FX3_GPIF_LAMBDA_INDEX_DMA_RDY, 0, 0, 0, 3, 1, 0, 0,
-		      FX3_GPIF_BETA_THREAD_0, 0, 0), .left = 16, .right = 4 },
+		      FX3_GPIF_BETA_THREAD_0, 0, 0), .left = 16, .right = 5 },
   [17] = { GPIF_STATE(17, FX3_GPIF_LAMBDA_INDEX_DMA_RDY, 0, 0, 0, 3, 1, 0, 0,
-		      FX3_GPIF_BETA_THREAD_1, 0, 0), .left = 17, .right = 6 },
+		      FX3_GPIF_BETA_THREAD_1, 0, 0), .left = 17, .right = 7 },
   [18] = { GPIF_STATE(18, FX3_GPIF_LAMBDA_INDEX_DMA_RDY, 0, 0, 0, 3, 1, 0, 0,
-		      FX3_GPIF_BETA_THREAD_0, 0, 0), .left = 18, .right = 9 },
+		      FX3_GPIF_BETA_THREAD_0, 0, 0), .left = 18, .right = 10 },
   [19] = { GPIF_STATE(19, FX3_GPIF_LAMBDA_INDEX_DMA_RDY, 0, 0, 0, 3, 1, 0, 0,
-		      FX3_GPIF_BETA_THREAD_1, 0, 0), .left = 19, .right = 11 },
+		      FX3_GPIF_BETA_THREAD_1, 0, 0), .left = 19, .right = 12 },
   [20] = { GPIF_STATE(20, FX3_GPIF_LAMBDA_INDEX_DMA_RDY, 0, 0, 0, 3, 1, 0, 0,
-		      FX3_GPIF_BETA_THREAD_0, 0, 0), .left = 20, .right = 15 },
+		      FX3_GPIF_BETA_THREAD_0, 0, 0), .left = 20, .right = 14 },
   [21] = { GPIF_STATE(21, FX3_GPIF_LAMBDA_INDEX_DMA_RDY, 0, 0, 0, 3, 1, 0, 0,
-		      FX3_GPIF_BETA_THREAD_1, 0, 0), .left = 21, .right = 14 },
+		      FX3_GPIF_BETA_THREAD_1, 0, 0), .left = 21, .right = 15 },
 
   /* Done */
 
@@ -298,6 +298,9 @@ void poll_acquisition(void)
   uint8_t state;
   uint8_t gpif_stat = Fx3GpifGetStat(&state);
   if (gpif_stat == FX3_GPIF_PAUSED) {
+    if (state != 22)
+      return;
+
     pause_count++;
     pause_gpif_stat = gpif_stat;
     pause_gpif_state = state;
