@@ -10,8 +10,8 @@
 
 #include "command.h"
 
-#define NUM_DMA_BUFFERS 10
-#define DMA_BUFFER_SIZE 6144 /* Needs to be divisable by 12 */
+#define NUM_DMA_BUFFERS 16
+#define DMA_BUFFER_SIZE 24576 /* Needs to be divisable by 12 */
 
 static const uint16_t functions[]  = {
   [0] = 0U,  /* Constant 0 */
