@@ -168,6 +168,7 @@ static Fx3GpifRegisters_t registers = {
 		       (1UL << FX3_GPIF_THREAD_CONFIG_THREAD_SOCK_SHIFT)),
   .waveform_switch = ((22UL << FX3_GPIF_WAVEFORM_SWITCH_DONE_STATE_SHIFT) |
 		      FX3_GPIF_WAVEFORM_SWITCH_DONE_ENABLE),
+  .beta_deassert = 0xFFFFFFC1UL,
 };
 
 static volatile uint8_t gpif_buf[NUM_DMA_BUFFERS][DMA_BUFFER_SIZE] __attribute__((aligned(32)));

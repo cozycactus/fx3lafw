@@ -25,10 +25,11 @@
 #include <stdint.h>
 
 #ifndef PLL_FBDIV
-#define PLL_FBDIV 21  /* -> SYS_CLK = 403200000 */
+#define PLL_FBDIV 20  /* -> SYS_CLK = 384000000 */
 #endif
 
-#define SYS_CLK (19200000 * PLL_FBDIV)
+#define FX3_GCTL_SYS_CLK_FOR_PLL_FBDIV(fbdiv) (19200000UL * (fbdiv))
+#define SYS_CLK FX3_GCTL_SYS_CLK_FOR_PLL_FBDIV(PLL_FBDIV)
 
 #ifndef CPU_DIV
 #define CPU_DIV 2
@@ -48,6 +49,7 @@ typedef enum {
 } Fx3GctlPinAltFunc_t;
 
 extern void Fx3GctlInitClock(void);
+extern void Fx3GctlSetPllFbDiv(uint8_t pll_fbdiv);
 extern void Fx3GctlInitIoMatrix(Fx3GctlPinAltFunc_t alt_func);
 extern void Fx3GctlHardReset(void);
 

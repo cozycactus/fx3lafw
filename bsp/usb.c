@@ -676,9 +676,14 @@ void Fx3UsbEnableInEndpoint(uint8_t ep, Fx3UsbEndpointType_t type, uint16_t pkts
 
   /* USB3 EP valid */
   Fx3WriteReg32(FX3_PROT_EPI_CS1+(ep<<2), FX3_PROT_EPI_CS1_VALID);
-  Fx3WriteReg32(FX3_PROT_EPI_CS2+(ep<<2),
+  uint32_t epi_cs2 =
 		(16UL << FX3_PROT_EPI_CS2_ISOINPKS_SHIFT) |
-		((type << FX3_PROT_EPI_CS2_TYPE_SHIFT) & FX3_PROT_EPI_CS2_TYPE_MASK));
+		((type << FX3_PROT_EPI_CS2_TYPE_SHIFT) & FX3_PROT_EPI_CS2_TYPE_MASK);
+  if (type == FX3_USB_EP_BULK)
+    /* SuperSpeed bulk burst: 12 packets per burst (MAXBURST is 0-based). */
+    epi_cs2 |= (11UL << FX3_PROT_EPI_CS2_MAXBURST_SHIFT) &
+		FX3_PROT_EPI_CS2_MAXBURST_MASK;
+  Fx3WriteReg32(FX3_PROT_EPI_CS2+(ep<<2), epi_cs2);
 
   /* USB2 EP valid */
   Fx3WriteReg32(FX3_DEV_EPI_CS+(ep<<2),

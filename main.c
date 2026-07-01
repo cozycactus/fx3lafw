@@ -14,7 +14,9 @@
 #include "acquisition.h"
 #include "command.h"
 
-#define CLOCK_DIVISOR_X2_FOR(f) ((SYS_CLK + (f)/4) / ((f)/2))
+#define CLOCK_DIVISOR_X2_FOR(sys_clk, f) (((sys_clk) + (f)/4) / ((f)/2))
+#define FX3LAFW_89MHZ_PLL_FBDIV 21
+#define FX3LAFW_89MHZ_SYS_CLK FX3_GCTL_SYS_CLK_FOR_PLL_FBDIV(FX3LAFW_89MHZ_PLL_FBDIV)
 
 static volatile uint8_t DmaBuf[128] __attribute__((aligned(32)));
 
@@ -30,6 +32,7 @@ static void VendorCommand(uint8_t request_type, uint8_t request, uint16_t value,
       goto stall;
     Fx3UartTxString("CMD_STOP\n");
     stop_acquisition();
+    Fx3GctlSetPllFbDiv(PLL_FBDIV);
     Fx3UsbUnstallEp0(s);
     return;
   case CMD_RESET:
@@ -71,21 +74,30 @@ static void VendorCommand(uint8_t request_type, uint8_t request, uint16_t value,
     if (flags & (1<<CMD_START_FLAGS_SUPERWIDE_POS))
       bits += 16;
     uint16_t clock_divisor_x2;
-    switch (flags & CMD_START_FLAGS_CLK_SRC_MASK) {
+    uint8_t pll_fbdiv = PLL_FBDIV;
+    uint32_t sys_clk = SYS_CLK;
+    switch (flags & (CMD_START_FLAGS_CLK_CTL2 | CMD_START_FLAGS_CLK_SRC_MASK)) {
+    case CMD_START_FLAGS_CLK_89MHZ:
+      pll_fbdiv = FX3LAFW_89MHZ_PLL_FBDIV;
+      sys_clk = FX3LAFW_89MHZ_SYS_CLK;
+      clock_divisor_x2 = CLOCK_DIVISOR_X2_FOR(sys_clk, 89600000); /* 89.6 MHz */
+      break;
     case CMD_START_FLAGS_CLK_192MHZ:
-      clock_divisor_x2 = CLOCK_DIVISOR_X2_FOR(192000000); /* 192 MHz */
+      clock_divisor_x2 = CLOCK_DIVISOR_X2_FOR(sys_clk, 192000000); /* 192 MHz */
       break;
     case CMD_START_FLAGS_CLK_80MHZ:
-      clock_divisor_x2 = CLOCK_DIVISOR_X2_FOR(80000000); /* 80 MHz */
+      clock_divisor_x2 = CLOCK_DIVISOR_X2_FOR(sys_clk, 80000000); /* 80 MHz */
       break;
     case CMD_START_FLAGS_CLK_48MHZ:
-      clock_divisor_x2 = CLOCK_DIVISOR_X2_FOR(48000000); /* 48 MHz */
+      clock_divisor_x2 = CLOCK_DIVISOR_X2_FOR(sys_clk, 48000000); /* 48 MHz */
       break;
     default:
-      clock_divisor_x2 = CLOCK_DIVISOR_X2_FOR(30000000); /* 30 MHz */
+      clock_divisor_x2 = CLOCK_DIVISOR_X2_FOR(sys_clk, 30000000); /* 30 MHz */
       break;
     }
 
+    stop_acquisition();
+    Fx3GctlSetPllFbDiv(pll_fbdiv);
     start_acquisition(bits, sample_delay, clock_divisor_x2,
 		      (flags & CMD_START_FLAGS_EXT_CLOCK) != 0,
 		      (flags & CMD_START_FLAGS_CLK_INVERT) != 0);
@@ -100,7 +112,7 @@ static void VendorCommand(uint8_t request_type, uint8_t request, uint16_t value,
     Fx3UartTxString("CMD_GET_FW_VERSION\n");
     volatile struct version_info *vinfo = (volatile struct version_info *)DmaBuf;
     vinfo->major = 1;
-    vinfo->minor = 18;
+    vinfo->minor = 23;
     Fx3CacheCleanDCacheEntry(DmaBuf);
     Fx3UsbUnstallEp0(s);
     Fx3UsbDmaDataIn(0, DmaBuf, sizeof(struct version_info));

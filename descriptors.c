@@ -171,7 +171,7 @@ static const struct __attribute__((packed)) {
   .companions[0] = {
      .length = sizeof(superspeed_configuration_descriptor.companions[0]),
      .descriptor_type = FX3_USB_DESCRIPTOR_SS_EP_COMPANION,
-     .max_burst = 0,
+     .max_burst = 11, /* bMaxBurst is 0-based: 11 => 12 packets per burst */
      .max_streams = 0,
      .service_interval = 0
    },
