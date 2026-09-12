@@ -49,6 +49,7 @@ volatile uint32_t Fx3UsbEvtLinkDown;
 volatile uint32_t Fx3UsbEvtLinkUp;
 
 volatile uint8_t Fx3UsbVbusPresent;
+static volatile uint8_t Fx3UsbVbusLost;
 volatile uint8_t Fx3UsbReconnectPending;
 volatile uint32_t Fx3UsbEvtSetup;
 volatile uint32_t Fx3UsbEvtReconnect;
@@ -78,10 +79,15 @@ void Fx3UsbServiceReconnect(void)
   Fx3UartTxFlush();
   Fx3UsbEnablePhy();
 
-  /* Give the host a moment to enumerate us again. */
-  host_silent_setup_count = Fx3UsbEvtSetup;
-  host_silent_ms = 0;
-  host_silent_armed = 1;
+  /* Give the host a moment to enumerate us again - but only if it has ever
+   * talked to us, otherwise a device that nobody has opened yet would reset
+   * itself in a loop.
+   */
+  if (Fx3UsbEvtSetup) {
+    host_silent_setup_count = Fx3UsbEvtSetup;
+    host_silent_ms = 0;
+    host_silent_armed = 1;
+  }
 }
 
 /*
@@ -644,10 +650,17 @@ static void Fx3UsbGctlPowerIsr(void)
     if (Fx3ReadReg32(FX3_GCTL_IOPOWER) & FX3_GCTL_IOPOWER_VBUS) {
       Fx3UartTxString("  VBUS present\n");
       Fx3UsbVbusPresent = 1;
-      Fx3UsbReconnectPending = 1;
+      /* Re-arm the link only after a real loss: the pending interrupt that
+       * fires during boot must not restart the PHY we just brought up.
+       */
+      if (Fx3UsbVbusLost) {
+	Fx3UsbVbusLost = 0;
+	Fx3UsbReconnectPending = 1;
+      }
     } else {
       Fx3UartTxString("  VBUS lost\n");
       Fx3UsbVbusPresent = 0;
+      Fx3UsbVbusLost = 1;
     }
   }
 
