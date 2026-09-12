@@ -136,8 +136,11 @@ int main(int argc, char **argv)
 			continue;
 		}
 
+		/* Both firmware images of this project answer the reset
+		 * request, so accept either product name. */
 		if (strcmp(manufacturer, "sigrok") ||
-				strcmp(product, "fx3lafw")) {
+				(strcmp(product, "fx3lafw") &&
+				 strcmp(product, "fx3ulpifw"))) {
 			libusb_close(handle);
 			handle = NULL;
 			continue;

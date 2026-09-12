@@ -164,10 +164,20 @@ void Fx3GpifConfigureCompat(const Fx3GpifWaveformCompat_t *waveforms,
 
 void Fx3GpifPibStart(uint16_t clock_divisor_x2, uint8_t external_clock)
 {
+  /*
+   * With an external interface clock, clock_divisor_x2 only describes the
+   * incoming pin clock; it must not throttle the PIB core.  A core clock
+   * derived from the pin clock sits just below it (SYS_CLK/6.5 against a
+   * 60 MHz PCLK), which makes the DMA sink slower than the GPIF source and
+   * overflows the write sockets.  Run the core at SYS_CLK/2, as Cypress'
+   * own GPIF designs do.
+   */
+  uint16_t core_divisor_x2 = external_clock ? 4 : clock_divisor_x2;
+
   Fx3WriteReg32(FX3_GCTL_PIB_CORE_CLK,
-		(((clock_divisor_x2 >> 1)-1) << FX3_GCTL_PIB_CORE_CLK_DIV_SHIFT) |
+		(((core_divisor_x2 >> 1)-1) << FX3_GCTL_PIB_CORE_CLK_DIV_SHIFT) |
 		(3UL << FX3_GCTL_PIB_CORE_CLK_SRC_SHIFT));
-  if (clock_divisor_x2 & 1)
+  if (core_divisor_x2 & 1)
     Fx3SetReg32(FX3_GCTL_PIB_CORE_CLK, FX3_GCTL_PIB_CORE_CLK_HALFDIV);
   Fx3SetReg32(FX3_GCTL_PIB_CORE_CLK, FX3_GCTL_PIB_CORE_CLK_CLK_EN);
 
@@ -181,20 +191,21 @@ void Fx3GpifPibStart(uint16_t clock_divisor_x2, uint8_t external_clock)
   Fx3ClearReg32(FX3_PIB_DLL_CTRL, FX3_PIB_DLL_CTRL_ENABLE);
   Fx3UtilDelayUs(1);
 
-  /* Synchronous slave input uses PCLK directly, as in the FX3 SDK. */
-  if (!external_clock) {
-    Fx3WriteReg32(FX3_PIB_DLL_CTRL,
+  /* The DLL has to be locked for a PCLK capture as well, not only for the
+   * internally generated clock: the ULPI sniffer image samples a 60 MHz
+   * PCLK with it enabled, while an external-clock capture without it
+   * delivers a few hundred kilobytes and then reports a PIB error. */
+  Fx3WriteReg32(FX3_PIB_DLL_CTRL,
 			(clock_divisor_x2<11? FX3_PIB_DLL_CTRL_HIGH_FREQ : 0UL) |
 			FX3_PIB_DLL_CTRL_ENABLE);
-    Fx3UtilDelayUs(1);
-    Fx3ClearReg32(FX3_PIB_DLL_CTRL, FX3_PIB_DLL_CTRL_DLL_RESET_N);
-    Fx3UtilDelayUs(1);
-    Fx3SetReg32(FX3_PIB_DLL_CTRL, FX3_PIB_DLL_CTRL_DLL_RESET_N);
-    Fx3UtilDelayUs(1);
-    if (!Fx3UtilPollReg32(FX3_PIB_DLL_CTRL, FX3_PIB_DLL_CTRL_DLL_STAT,
-			  FX3_PIB_DLL_CTRL_DLL_STAT, 100000))
-      Fx3UartTxString("PIB DLL lock timeout\n");
-  }
+  Fx3UtilDelayUs(1);
+  Fx3ClearReg32(FX3_PIB_DLL_CTRL, FX3_PIB_DLL_CTRL_DLL_RESET_N);
+  Fx3UtilDelayUs(1);
+  Fx3SetReg32(FX3_PIB_DLL_CTRL, FX3_PIB_DLL_CTRL_DLL_RESET_N);
+  Fx3UtilDelayUs(1);
+  if (!Fx3UtilPollReg32(FX3_PIB_DLL_CTRL, FX3_PIB_DLL_CTRL_DLL_STAT,
+			FX3_PIB_DLL_CTRL_DLL_STAT, 100000))
+    Fx3UartTxString("PIB DLL lock timeout\n");
 
   Fx3WriteReg32(FX3_VIC_VEC_ADDRESS + (FX3_IRQ_GPIF_CORE<<2), Fx3GpifPibIsr);
   Fx3WriteReg32(FX3_PIB_INTR, Fx3ReadReg32(FX3_PIB_INTR));

@@ -234,8 +234,9 @@ void start_acquisition(uint8_t bits, uint32_t delay, uint16_t clock_divisor_x2,
 				      FX3_GPIF_CONFIG_SYNC_SPEED |
 				      FX3_GPIF_CONFIG_SYNC);
   if (external_clock)
-    /* Match the SDK/SDDC synchronous input pipeline for a 60 MHz PCLK. */
-    registers.config |= FX3_GPIF_CONFIG_SYNC | FX3_GPIF_CONFIG_SYNC_SPEED;
+    /* Match the pin-clock capture the ULPI sniffer image validates at
+     * 60 MHz: synchronous mode without the SYNC_SPEED bit. */
+    registers.config |= FX3_GPIF_CONFIG_SYNC;
   else
     registers.config |= FX3_GPIF_CONFIG_CLK_SOURCE;
   if (invert_clock)
