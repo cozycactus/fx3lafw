@@ -38,8 +38,9 @@ void Fx3UartInit(uint32_t baud_rate, Fx3UartParity_t parity, Fx3UartStopBits_t s
   Fx3WriteReg32(FX3_UART_POWER, 0);
   Fx3UtilDelayUs(10);
   Fx3WriteReg32(FX3_UART_POWER, FX3_UART_POWER_RESETN);
-  while(!(Fx3ReadReg32(FX3_UART_POWER) & FX3_UART_POWER_ACTIVE))
-    ;
+  /* No point reporting this one: the UART is what would report it. */
+  Fx3UtilPollReg32(FX3_UART_POWER, FX3_UART_POWER_ACTIVE,
+		   FX3_UART_POWER_ACTIVE, 100000);
 
   /* Configure and enable UART */
   Fx3WriteReg32(FX3_UART_CONFIG,
@@ -50,8 +51,12 @@ void Fx3UartInit(uint32_t baud_rate, Fx3UartParity_t parity, Fx3UartStopBits_t s
 
 void Fx3UartTxByte(uint8_t byte)
 {
-  while(!(Fx3ReadReg32(FX3_UART_STATUS) & FX3_UART_STATUS_TX_SPACE))
-    ;
+  /* Debug output is also written from ISRs, so it must never block the
+   * firmware: drop the byte when the FIFO stays full.
+   */
+  if (!Fx3UtilPollReg32(FX3_UART_STATUS, FX3_UART_STATUS_TX_SPACE,
+			FX3_UART_STATUS_TX_SPACE, 10000))
+    return;
   Fx3WriteReg32(FX3_UART_EGRESS_DATA, byte);
 }
 
@@ -77,6 +82,6 @@ extern void Fx3UartTxString(const char *str)
 
 void Fx3UartTxFlush(void)
 {
-  while(!(Fx3ReadReg32(FX3_UART_STATUS) & FX3_UART_STATUS_TX_DONE))
-    ;
+  Fx3UtilPollReg32(FX3_UART_STATUS, FX3_UART_STATUS_TX_DONE,
+		   FX3_UART_STATUS_TX_DONE, 10000);
 }

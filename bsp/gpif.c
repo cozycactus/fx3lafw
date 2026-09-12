@@ -174,8 +174,9 @@ void Fx3GpifPibStart(uint16_t clock_divisor_x2, uint8_t external_clock)
   Fx3WriteReg32(FX3_PIB_POWER, 0);
   Fx3UtilDelayUs(10);
   Fx3SetReg32(FX3_PIB_POWER, FX3_PIB_POWER_RESETN);
-  while(!(Fx3ReadReg32(FX3_PIB_POWER) & FX3_PIB_POWER_ACTIVE))
-    ;
+  if (!Fx3UtilPollReg32(FX3_PIB_POWER, FX3_PIB_POWER_ACTIVE,
+			FX3_PIB_POWER_ACTIVE, 100000))
+    Fx3UartTxString("PIB power timeout\n");
 
   Fx3ClearReg32(FX3_PIB_DLL_CTRL, FX3_PIB_DLL_CTRL_ENABLE);
   Fx3UtilDelayUs(1);
@@ -190,8 +191,9 @@ void Fx3GpifPibStart(uint16_t clock_divisor_x2, uint8_t external_clock)
     Fx3UtilDelayUs(1);
     Fx3SetReg32(FX3_PIB_DLL_CTRL, FX3_PIB_DLL_CTRL_DLL_RESET_N);
     Fx3UtilDelayUs(1);
-    while(!(Fx3ReadReg32(FX3_PIB_DLL_CTRL) & FX3_PIB_DLL_CTRL_DLL_STAT))
-      ;
+    if (!Fx3UtilPollReg32(FX3_PIB_DLL_CTRL, FX3_PIB_DLL_CTRL_DLL_STAT,
+			  FX3_PIB_DLL_CTRL_DLL_STAT, 100000))
+      Fx3UartTxString("PIB DLL lock timeout\n");
   }
 
   Fx3WriteReg32(FX3_VIC_VEC_ADDRESS + (FX3_IRQ_GPIF_CORE<<2), Fx3GpifPibIsr);

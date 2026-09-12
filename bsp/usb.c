@@ -36,31 +36,37 @@ static void Fx3UsbGctlCoreIsr(void) __attribute__ ((isr ("IRQ")));
 static void Fx3UsbUsbCoreIsr(void) __attribute__ ((isr ("IRQ")));
 static void Fx3UsbGctlPowerIsr(void) __attribute__ ((isr ("IRQ")));
 
+/* SuperSpeed PHY register handshake: bit 16 acknowledges a request. */
+static int Fx3UsbWaitPhyBit(int set)
+{
+  return Fx3UtilPollReg32(0xe0033028, 1UL << 16,
+			  set? (1UL << 16) : 0, 10000);
+}
+
 static void Fx3UsbWritePhyReg(uint16_t phy_addr, uint16_t phy_val)
 {
+  int ok = 1;
+
   if (!(Fx3ReadReg32(FX3_OTG_CTRL) & FX3_OTG_CTRL_SSDEV_ENABLE))
     return;
 
   Fx3WriteReg32(0xe0033024, phy_addr);
   Fx3WriteReg32(0xe0033024, phy_addr | (1UL << 16));
-  while(!(Fx3ReadReg32(0xe0033028) & (1UL << 16)))
-    ;
+  ok &= Fx3UsbWaitPhyBit(1);
   Fx3WriteReg32(0xe0033024, phy_addr);
-  while((Fx3ReadReg32(0xe0033028) & (1UL << 16)))
-    ;
+  ok &= Fx3UsbWaitPhyBit(0);
   Fx3WriteReg32(0xe0033024, phy_val);
   Fx3WriteReg32(0xe0033024, phy_val | (1UL << 17));
-  while(!(Fx3ReadReg32(0xe0033028) & (1UL << 16)))
-    ;
+  ok &= Fx3UsbWaitPhyBit(1);
   Fx3WriteReg32(0xe0033024, phy_val);
-  while((Fx3ReadReg32(0xe0033028) & (1UL << 16)))
-    ;
+  ok &= Fx3UsbWaitPhyBit(0);
   Fx3WriteReg32(0xe0033024, phy_val | (1UL << 19));
-  while(!(Fx3ReadReg32(0xe0033028) & (1UL << 16)))
-    ;
+  ok &= Fx3UsbWaitPhyBit(1);
   Fx3WriteReg32(0xe0033024, phy_val);
-  while((Fx3ReadReg32(0xe0033028) & (1UL << 16)))
-    ;
+  ok &= Fx3UsbWaitPhyBit(0);
+
+  if (!ok)
+    Fx3UartTxString("PHY register write timeout\n");
 }
 
 

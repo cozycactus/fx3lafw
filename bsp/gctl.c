@@ -42,8 +42,12 @@ void Fx3GctlSetPllFbDiv(uint8_t pll_fbdiv)
   if (Fx3GetField32(FX3_GCTL_PLL_CFG, FBDIV) != pll_fbdiv) {
     Fx3SetField32(FX3_GCTL_PLL_CFG, FBDIV, pll_fbdiv);
     Fx3UtilDelayUs(10);
-    while ((Fx3ReadReg32(FX3_GCTL_PLL_CFG) & FX3_GCTL_PLL_CFG_PLL_LOCK) == 0)
-      ;
+    /* The first call happens before the debug UART exists, so a PLL that
+     * never locks cannot report anything here - it must still not hang
+     * the boot: the host then sees a device that stays silent.
+     */
+    Fx3UtilPollReg32(FX3_GCTL_PLL_CFG, FX3_GCTL_PLL_CFG_PLL_LOCK,
+		     FX3_GCTL_PLL_CFG_PLL_LOCK, 100000);
     Fx3UtilDelayUs(10);
   }
 }
