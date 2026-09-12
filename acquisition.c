@@ -229,10 +229,12 @@ void start_acquisition(uint8_t bits, uint32_t delay, uint16_t clock_divisor_x2,
 {
   registers.config &= ~(FX3_GPIF_CONFIG_CLK_SOURCE |
 			      FX3_GPIF_CONFIG_CLK_INVERT |
-			      FX3_GPIF_CONFIG_CLK_OUT |
-			      FX3_GPIF_CONFIG_SYNC);
+				      FX3_GPIF_CONFIG_CLK_OUT |
+				      FX3_GPIF_CONFIG_SYNC_SPEED |
+				      FX3_GPIF_CONFIG_SYNC);
   if (external_clock)
-    registers.config |= FX3_GPIF_CONFIG_SYNC;
+    /* Match the SDK/SDDC synchronous input pipeline for a 60 MHz PCLK. */
+    registers.config |= FX3_GPIF_CONFIG_SYNC | FX3_GPIF_CONFIG_SYNC_SPEED;
   else
     registers.config |= FX3_GPIF_CONFIG_CLK_SOURCE;
   if (invert_clock)
@@ -251,7 +253,7 @@ void start_acquisition(uint8_t bits, uint32_t delay, uint16_t clock_divisor_x2,
   pause_count = 0;
   setup_descriptors();
 
-  Fx3GpifPibStart(clock_divisor_x2);
+  Fx3GpifPibStart(clock_divisor_x2, external_clock);
   Fx3GpifConfigure(waveforms,
 		   sizeof(waveforms)/sizeof(waveforms[0]),
 		   functions, sizeof(functions)/sizeof(functions[0]),
