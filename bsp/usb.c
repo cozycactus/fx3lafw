@@ -25,6 +25,7 @@
 #include <bsp/irq.h>
 #include <bsp/util.h>
 #include <bsp/uart.h>
+#include <bsp/gctl.h>
 #include <rdb/gctl.h>
 #include <rdb/uib.h>
 #include <rdb/uibin.h>
@@ -37,6 +38,10 @@ static void Fx3UsbUsbCoreIsr(void) __attribute__ ((isr ("IRQ")));
 static void Fx3UsbGctlPowerIsr(void) __attribute__ ((isr ("IRQ")));
 
 volatile uint8_t Fx3UsbVbusSeen;
+
+/* Set once the host has sent a setup packet.  A link that is still
+ * training must not be mistaken for a dead one. */
+volatile uint8_t Fx3UsbHostSeen;
 
 #ifdef FX3_ULPI_SNIFFER
 #define FX3_USB_DETACH_DELAY_US 1000000UL
@@ -359,10 +364,52 @@ void Fx3UsbPoll(void)
   Fx3UsbDisablePhy();
   Fx3UtilDelayUs(FX3_USB_DETACH_DELAY_US);
 
+  /* The link was taken down on purpose: wait for the host to talk to us
+   * again before the link watchdog judges the new link. */
+  Fx3UsbHostSeen = 0;
   if (Fx3ReadReg32(FX3_GCTL_IOPOWER) & FX3_GCTL_IOPOWER_VBUS)
     Fx3UsbEnablePhy();
 }
 #endif
+
+/*
+ * A host that takes the port away without dropping VBUS (resume from sleep,
+ * hub or driver induced device restart) leaves the board powered but off the
+ * bus: the SuperSpeed link never retrains, the LTSSM parks in Rx.Detect and
+ * the firmware keeps running without noticing.  Once the host has enumerated
+ * us, treat a link that stays out of the connected states as dead and reset
+ * the chip: the board comes back as the FX3 bootloader, which every host can
+ * enumerate and load again.
+ *
+ * LTSSM state codes: 0x10 U0 (link up), 0x18 U3 (suspended by the host).
+ */
+#define FX3_USB_LTSSM_U0 0x10UL
+#define FX3_USB_LTSSM_U3 0x18UL
+#define FX3_USB_LINK_CONFIRM_US 2000000UL
+
+static int Fx3UsbLinkHealthy(void)
+{
+  uint32_t state = Fx3ReadReg32(FX3_LNK_LTSSM_STATE) &
+    FX3_LNK_LTSSM_STATE_LTSSM_STATE_MASK;
+
+  return state == FX3_USB_LTSSM_U0 || state == FX3_USB_LTSSM_U3;
+}
+
+void Fx3UsbLinkCheck(void)
+{
+  if (!Fx3UsbHostSeen || Fx3UsbLinkHealthy())
+    return;
+
+  /* A link that is being retrained is briefly out of U0, and this loop runs
+   * far faster than that, so confirm the loss before resetting. */
+  Fx3UtilDelayUs(FX3_USB_LINK_CONFIRM_US);
+  if (Fx3UsbLinkHealthy())
+    return;
+
+  Fx3UartTxString("USB link down; self reset\n");
+  Fx3UartTxFlush();
+  Fx3GctlHardReset();
+}
 
 void Fx3UsbStallEp0(Fx3UsbSpeed_t s)
 {
@@ -465,6 +512,7 @@ static void Fx3UsbUsbCoreIsr(void)
       else
 	/* OUT transfer */
 	Fx3WriteReg32(FX3_DEV_EPO_XFER_CNT, length);
+      Fx3UsbHostSeen = 1;
       (*Fx3UsbUserCallbacks->sutok)
 	(req_type, sudat0 >> FX3_PROT_SETUP_DAT_SETUP_REQUEST_SHIFT,
 	 sudat0 >> FX3_PROT_SETUP_DAT_SETUP_VALUE_SHIFT,
@@ -589,6 +637,7 @@ static void Fx3UsbUsbCoreIsr(void)
 		else
 			/* OUT transfer */
 			Fx3WriteReg32(FX3_DEV_EPO_XFER_CNT, length);
+		Fx3UsbHostSeen = 1;
 		(*Fx3UsbUserCallbacks->sutok)
 			(req_type, setupdat0 >> FX3_PROT_SETUP_DAT_SETUP_REQUEST_SHIFT,
 			 setupdat0 >> FX3_PROT_SETUP_DAT_SETUP_VALUE_SHIFT,

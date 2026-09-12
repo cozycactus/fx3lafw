@@ -91,6 +91,11 @@ extern volatile uint8_t Fx3UsbVbusSeen;
 #ifdef FX3_ULPI_SNIFFER
 extern void Fx3UsbPoll(void);
 #endif
+/* Set once the host sent a setup packet. */
+extern volatile uint8_t Fx3UsbHostSeen;
+/* Reset the chip when the host re-enumerated the port without dropping
+ * VBUS and the link never came back; call from the main loop. */
+extern void Fx3UsbLinkCheck(void);
 extern void Fx3UsbStallEp0(Fx3UsbSpeed_t s);
 
 extern void Fx3UsbUnstallEp0(Fx3UsbSpeed_t s);

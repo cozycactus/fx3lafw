@@ -465,6 +465,7 @@ int main(void)
 #ifdef FX3_ULPI_SNIFFER
   for (;;) {
     Fx3UsbPoll();
+    Fx3UsbLinkCheck();
     PollDeferredVendorCommand();
     poll_acquisition();
   }
@@ -473,6 +474,7 @@ int main(void)
     poll_acquisition();
     Fx3GpioSetOutputValueSimple(54, 1);
     Fx3UtilDelayUs(blink_half_us);
+    Fx3UsbLinkCheck();
     if (!Fx3GpioGetInputValueSimple(45)) {
       Fx3UartTxString("BUTTON\n");
       Fx3UartTxFlush();
