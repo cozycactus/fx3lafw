@@ -80,6 +80,7 @@
 #define FX3_GPIF_CONFIG_CTRL_COMP_TOGGLE                 (1UL << 12)
 #define FX3_GPIF_CONFIG_ADDR_COMP_TOGGLE                 (1UL << 11)
 #define FX3_GPIF_CONFIG_ENDIAN                           (1UL << 10)
+#define FX3_GPIF_CONFIG_SYNC_SPEED                       (1UL << 9)
 #define FX3_GPIF_CONFIG_SYNC                             (1UL << 8)
 #define FX3_GPIF_CONFIG_DOUT_POP_EN                      (1UL << 7)
 #define FX3_GPIF_CONFIG_DDR_MODE                         (1UL << 6)

@@ -230,7 +230,7 @@ extern void Fx3GpifConfigureCompat(const Fx3GpifWaveformCompat_t *waveforms,
 				   uint16_t num_waveforms,
 				   const uint16_t *functions, uint16_t num_functions,
 				   const uint32_t *registers, uint16_t num_registers);
-extern void Fx3GpifPibStart(uint16_t clock_divisor_x2);
+extern void Fx3GpifPibStart(uint16_t clock_divisor_x2, uint8_t external_clock);
 extern void Fx3GpifPibStop(void);
 extern Fx3GpifStat_t Fx3GpifGetStat(uint8_t *current_state);
 

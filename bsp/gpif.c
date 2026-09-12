@@ -162,7 +162,7 @@ void Fx3GpifConfigureCompat(const Fx3GpifWaveformCompat_t *waveforms,
   Fx3GpifConfigureCommon(functions, num_functions, registers, num_registers);
 }
 
-void Fx3GpifPibStart(uint16_t clock_divisor_x2)
+void Fx3GpifPibStart(uint16_t clock_divisor_x2, uint8_t external_clock)
 {
   Fx3WriteReg32(FX3_GCTL_PIB_CORE_CLK,
 		(((clock_divisor_x2 >> 1)-1) << FX3_GCTL_PIB_CORE_CLK_DIV_SHIFT) |
@@ -179,16 +179,20 @@ void Fx3GpifPibStart(uint16_t clock_divisor_x2)
 
   Fx3ClearReg32(FX3_PIB_DLL_CTRL, FX3_PIB_DLL_CTRL_ENABLE);
   Fx3UtilDelayUs(1);
-  Fx3WriteReg32(FX3_PIB_DLL_CTRL,
-		(clock_divisor_x2<11? FX3_PIB_DLL_CTRL_HIGH_FREQ : 0UL) |
-		FX3_PIB_DLL_CTRL_ENABLE);
-  Fx3UtilDelayUs(1);
-  Fx3ClearReg32(FX3_PIB_DLL_CTRL, FX3_PIB_DLL_CTRL_DLL_RESET_N);
-  Fx3UtilDelayUs(1);
-  Fx3SetReg32(FX3_PIB_DLL_CTRL, FX3_PIB_DLL_CTRL_DLL_RESET_N);
-  Fx3UtilDelayUs(1);
-  while(!(Fx3ReadReg32(FX3_PIB_DLL_CTRL) & FX3_PIB_DLL_CTRL_DLL_STAT))
-    ;
+
+  /* Synchronous slave input uses PCLK directly, as in the FX3 SDK. */
+  if (!external_clock) {
+    Fx3WriteReg32(FX3_PIB_DLL_CTRL,
+			(clock_divisor_x2<11? FX3_PIB_DLL_CTRL_HIGH_FREQ : 0UL) |
+			FX3_PIB_DLL_CTRL_ENABLE);
+    Fx3UtilDelayUs(1);
+    Fx3ClearReg32(FX3_PIB_DLL_CTRL, FX3_PIB_DLL_CTRL_DLL_RESET_N);
+    Fx3UtilDelayUs(1);
+    Fx3SetReg32(FX3_PIB_DLL_CTRL, FX3_PIB_DLL_CTRL_DLL_RESET_N);
+    Fx3UtilDelayUs(1);
+    while(!(Fx3ReadReg32(FX3_PIB_DLL_CTRL) & FX3_PIB_DLL_CTRL_DLL_STAT))
+      ;
+  }
 
   Fx3WriteReg32(FX3_VIC_VEC_ADDRESS + (FX3_IRQ_GPIF_CORE<<2), Fx3GpifPibIsr);
   Fx3WriteReg32(FX3_PIB_INTR, Fx3ReadReg32(FX3_PIB_INTR));
