@@ -64,6 +64,16 @@ extern void Fx3DmaSimpleTransferRead(uint32_t socket, uint16_t descriptor,
 				     const volatile void *buffer, uint16_t length);
 extern void Fx3DmaSimpleTransferWrite(uint32_t socket, uint16_t descriptor,
 				      volatile void *buffer, uint16_t length);
+#ifdef FX3_ULPI_SNIFFER
+extern uint8_t Fx3DmaSimpleTransferReadChecked(uint32_t socket,
+						      uint16_t descriptor,
+						      const volatile void *buffer,
+						      uint16_t length);
+extern uint8_t Fx3DmaSimpleTransferWriteChecked(uint32_t socket,
+						       uint16_t descriptor,
+						       volatile void *buffer,
+						       uint16_t length);
+#endif
 extern void Fx3DmaStartProducer(uint32_t socket, uint16_t descriptor,
 				uint32_t size, uint32_t count);
 extern void Fx3DmaStartConsumer(uint32_t socket, uint16_t descriptor,

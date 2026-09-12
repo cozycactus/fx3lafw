@@ -81,10 +81,16 @@ typedef enum {
 struct Fx3UsbCallbacks {
   void (*sutok)(uint8_t request_type, uint8_t request, uint16_t value,
 		uint16_t index, uint16_t length, Fx3UsbSpeed_t s);
+  void (*status_stage)(Fx3UsbSpeed_t s);
 };
 
 extern void Fx3UsbInit(const struct Fx3UsbCallbacks *callbacks);
 extern void Fx3UsbConnect(void);
+/* Set once Fx3UsbConnect() saw VBUS and brought the PHY up. */
+extern volatile uint8_t Fx3UsbVbusSeen;
+#ifdef FX3_ULPI_SNIFFER
+extern void Fx3UsbPoll(void);
+#endif
 extern void Fx3UsbStallEp0(Fx3UsbSpeed_t s);
 
 extern void Fx3UsbUnstallEp0(Fx3UsbSpeed_t s);
@@ -96,8 +102,5 @@ extern void Fx3UsbDmaDataIn(uint8_t ep, const volatile void *buffer,
 extern void Fx3UsbEnableInEndpoint(uint8_t ep, Fx3UsbEndpointType_t type,
 				   uint16_t pktsize);
 extern void Fx3UsbFlushInEndpoint(uint8_t ep);
-/* Caller must stop the endpoint's DMA producer before clearing its halt. */
-extern int Fx3UsbClearInEndpointHalt(uint8_t ep, Fx3UsbSpeed_t s);
-extern void Fx3UsbSetInEndpointNak(uint8_t ep, int nak);
 
 #endif /* BSP_USB_H_ */

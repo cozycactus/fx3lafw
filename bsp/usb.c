@@ -36,6 +36,32 @@ static void Fx3UsbGctlCoreIsr(void) __attribute__ ((isr ("IRQ")));
 static void Fx3UsbUsbCoreIsr(void) __attribute__ ((isr ("IRQ")));
 static void Fx3UsbGctlPowerIsr(void) __attribute__ ((isr ("IRQ")));
 
+volatile uint8_t Fx3UsbVbusSeen;
+
+#ifdef FX3_ULPI_SNIFFER
+#define FX3_USB_DETACH_DELAY_US 1000000UL
+
+static volatile uint8_t Fx3UsbVbusChanged;
+
+static void Fx3UsbDisablePhy(void)
+{
+  Fx3WriteReg32(FX3_UIB_INTR_MASK, 0);
+  Fx3WriteReg32(FX3_LNK_INTR_MASK, 0);
+  Fx3WriteReg32(FX3_PROT_INTR_MASK, 0);
+  Fx3WriteReg32(FX3_VIC_INT_CLEAR, (1UL << FX3_IRQ_USB_CORE));
+
+  Fx3SetReg32(FX3_DEV_PWR_CS, FX3_DEV_PWR_CS_DISCON);
+  Fx3ClearReg32(FX3_OTG_CTRL,
+		 FX3_OTG_CTRL_SSDEV_ENABLE |
+		 FX3_OTG_CTRL_SSEPM_ENABLE);
+  Fx3ClearReg32(FX3_LNK_PHY_CONF,
+		 FX3_LNK_PHY_CONF_RX_TERMINATION_ENABLE |
+		 FX3_LNK_PHY_CONF_RX_TERMINATION_OVR_VAL |
+		 FX3_LNK_PHY_CONF_RX_TERMINATION_OVR);
+  Fx3ClearReg32(FX3_GCTL_CONTROL, FX3_GCTL_CONTROL_USB_POWER_EN);
+}
+#endif
+
 static void Fx3UsbWritePhyReg(uint16_t phy_addr, uint16_t phy_val)
 {
   if (!(Fx3ReadReg32(FX3_OTG_CTRL) & FX3_OTG_CTRL_SSDEV_ENABLE))
@@ -183,7 +209,7 @@ static void Fx3UsbConnectSuperSpeed(void)
 
   Fx3UsbWritePhyReg(0x0030, 0x00c0);
   Fx3UsbWritePhyReg(0x1010, 0x0080);
-  
+
   Fx3WriteReg32(FX3_EEPM_ENDPOINT+0,
 		(512UL << FX3_EEPM_ENDPOINT_PACKET_SIZE_SHIFT));
   Fx3WriteReg32(FX3_IEPM_ENDPOINT+0,
@@ -220,19 +246,24 @@ static void Fx3UsbEnablePhy(void)
   Fx3WriteReg32(FX3_DEV_EP_INTR, ~0UL);
   Fx3WriteReg32(FX3_DEV_EP_INTR_MASK, 0);
   Fx3WriteReg32(FX3_UIB_INTR_MASK,
-		FX3_UIB_INTR_MASK_PROT_INT |
-		FX3_UIB_INTR_MASK_LNK_INT |
-		FX3_UIB_INTR_MASK_DEV_CTL_INT);
+			FX3_UIB_INTR_MASK_PROT_INT |
+			FX3_UIB_INTR_MASK_LNK_INT |
+			FX3_UIB_INTR_MASK_DEV_CTL_INT);
   Fx3WriteReg32(FX3_VIC_INT_ENABLE, (1UL << FX3_IRQ_USB_CORE));
   Fx3SetReg32(FX3_GCTL_CONTROL, FX3_GCTL_CONTROL_USB_POWER_EN);
 
-  /* Reject host U1/U2 requests: this driver has no low-power link handling.
-   * AUTO_U1/AUTO_U2 can accept entry even though EP0 rejects U1/U2_ENABLE,
-   * This caused a reset loop during Windows SuperSpeed enumeration.
-   */
+  /* Setup LNK for superspeed */
   Fx3WriteReg32(FX3_LNK_DEVICE_POWER_CONTROL,
+#ifdef FX3_ULPI_SNIFFER
+		/* 120 MB/s continuous needs the link pinned in U0; AUTO_U1/U2
+		 * exit latency can empty the ~3 ms DMA ring and WR_OVERFLOW. */
 		FX3_LNK_DEVICE_POWER_CONTROL_NO_U2 |
-		FX3_LNK_DEVICE_POWER_CONTROL_NO_U1);
+		FX3_LNK_DEVICE_POWER_CONTROL_NO_U1
+#else
+		FX3_LNK_DEVICE_POWER_CONTROL_AUTO_U2 |
+		FX3_LNK_DEVICE_POWER_CONTROL_AUTO_U1
+#endif
+		);
   Fx3WriteReg32(0xe003309c, 10000);
   Fx3WriteReg32(0xe0033080, 10000);
   Fx3WriteReg32(0xe0033084, 0x00fa004b);
@@ -284,14 +315,48 @@ static void Fx3UsbEnablePhy(void)
 
 void Fx3UsbConnect(void)
 {
+#ifdef FX3_ULPI_SNIFFER
+  /*
+   * The ROM enumerates at high speed before this image starts.  Hold both USB
+   * PHYs disconnected long enough for the host to release that xHCI slot
+   * before presenting the firmware as a new SuperSpeed device.
+   */
+  Fx3UsbDisablePhy();
+  Fx3UtilDelayUs(FX3_USB_DETACH_DELAY_US);
+#endif
   Fx3WriteReg32(FX3_GCTL_IOPOWER_INTR, ~0UL);
   Fx3WriteReg32(FX3_GCTL_IOPOWER_INTR_MASK, FX3_GCTL_IOPOWER_INTR_MASK_VBUS);
   Fx3WriteReg32(FX3_VIC_INT_ENABLE, (1UL << FX3_IRQ_GCTL_POWER));
   if (Fx3ReadReg32(FX3_GCTL_IOPOWER) & FX3_GCTL_IOPOWER_VBUS) {
     Fx3UartTxString("VBUS POWER!\n");
+    Fx3UsbVbusSeen = 1;
     Fx3UsbEnablePhy();
+#ifdef FX3_FORCE_HIGH_SPEED
+    /*
+     * Diagnostic build: the SuperSpeed path only falls back to USB 2.0 from
+     * the LTSSM_DISCONNECT interrupt, which never arrives when there is no
+     * SuperSpeed partner at all. Go straight to high speed instead.
+     */
+    Fx3UtilDelayUs(1000);
+    Fx3UsbConnectHighSpeed();
+#endif
   }
 }
+
+#ifdef FX3_ULPI_SNIFFER
+void Fx3UsbPoll(void)
+{
+  if (!Fx3UsbVbusChanged)
+    return;
+
+  Fx3UsbVbusChanged = 0;
+  Fx3UsbDisablePhy();
+  Fx3UtilDelayUs(FX3_USB_DETACH_DELAY_US);
+
+  if (Fx3ReadReg32(FX3_GCTL_IOPOWER) & FX3_GCTL_IOPOWER_VBUS)
+    Fx3UsbEnablePhy();
+}
+#endif
 
 void Fx3UsbStallEp0(Fx3UsbSpeed_t s)
 {
@@ -333,14 +398,26 @@ void Fx3UsbUnstallEp0(Fx3UsbSpeed_t s)
 void Fx3UsbDmaDataOut(uint8_t ep, volatile void *buffer, uint16_t length)
 {
   uint16_t d = Fx3DmaAllocateDescriptor();
+#ifdef FX3_ULPI_SNIFFER
+  if (!Fx3DmaSimpleTransferWriteChecked(FX3_UIBIN_DMA_SCK(ep), d,
+				       buffer, length))
+    Fx3UsbStallEp0(FX3_USB_SUPER_SPEED);
+#else
   Fx3DmaSimpleTransferWrite(FX3_UIBIN_DMA_SCK(ep), d, buffer, length);
+#endif
   Fx3DmaFreeDescriptor(d);
 }
 
 void Fx3UsbDmaDataIn(uint8_t ep, const volatile void *buffer, uint16_t length)
 {
   uint16_t d = Fx3DmaAllocateDescriptor();
+#ifdef FX3_ULPI_SNIFFER
+  if (!Fx3DmaSimpleTransferReadChecked(FX3_UIB_DMA_SCK(ep), d,
+				      buffer, length))
+    Fx3UsbStallEp0(FX3_USB_SUPER_SPEED);
+#else
   Fx3DmaSimpleTransferRead(FX3_UIB_DMA_SCK(ep), d, buffer, length);
+#endif
   Fx3DmaFreeDescriptor(d);
 }
 
@@ -358,6 +435,8 @@ static void Fx3UsbUsbCoreIsr(void)
 
     if (prot_req & FX3_PROT_INTR_STATUS_STAGE) {
       Fx3UartTxString("    STATUS_STAGE\n");
+      if (Fx3UsbUserCallbacks->status_stage != NULL)
+	(*Fx3UsbUserCallbacks->status_stage)(FX3_USB_SUPER_SPEED);
     }
     if (prot_req & FX3_PROT_INTR_SUTOK_EV) {
       Fx3UartTxString("    SUTOK_EV\n");
@@ -429,7 +508,15 @@ static void Fx3UsbUsbCoreIsr(void)
       Fx3UartTxString("    LGO_U3\n");
     }
     if (lnk_req & FX3_LNK_INTR_LTSSM_STATE_CHG) {
-      Fx3UartTxString("    LTSSM_STATE_CHG %u\n");
+      static const char hex[] = "0123456789abcdef";
+      uint8_t state =
+	(Fx3ReadReg32(FX3_LNK_LTSSM_STATE) &
+	 FX3_LNK_LTSSM_STATE_LTSSM_STATE_MASK) >>
+	FX3_LNK_LTSSM_STATE_LTSSM_STATE_SHIFT;
+      Fx3UartTxString("    LTSSM_STATE_CHG 0x");
+      Fx3UartTxChar(hex[state >> 4]);
+      Fx3UartTxChar(hex[state & 0xf]);
+      Fx3UartTxChar('\n');
     }
   }
   if (req & FX3_UIB_INTR_DEV_CTL_INT) {
@@ -462,12 +549,14 @@ static void Fx3UsbUsbCoreIsr(void)
 		Fx3UartTxString("    hsgrant\n");
 		Fx3SetReg32(FX3_DEV_CTRL_INTR_MASK, (1UL << 4));
 	}
-	if (dev_ctrl_req & (1UL << 11))
-	{
-		Fx3WriteReg32(FX3_DEV_CTRL_INTR, (1UL << 11));
-		Fx3UartTxString("    status\n");
-		Fx3SetReg32(FX3_DEV_CTRL_INTR_MASK, (1UL << 11));
-	}
+		if (dev_ctrl_req & (1UL << 11))
+		{
+			Fx3WriteReg32(FX3_DEV_CTRL_INTR, (1UL << 11));
+			Fx3UartTxString("    status\n");
+			if (Fx3UsbUserCallbacks->status_stage != NULL)
+				(*Fx3UsbUserCallbacks->status_stage)(FX3_USB_HIGH_SPEED);
+			Fx3SetReg32(FX3_DEV_CTRL_INTR_MASK, (1UL << 11));
+		}
 	if (dev_ctrl_req & (1UL << 6))
 	{
 		Fx3WriteReg32(FX3_DEV_CTRL_INTR, (1UL << 6));
@@ -530,6 +619,9 @@ static void Fx3UsbGctlPowerIsr(void)
 
   if (req & FX3_GCTL_IOPOWER_INTR_VBUS) {
     Fx3UartTxString("  VBUS\n");
+#ifdef FX3_ULPI_SNIFFER
+    Fx3UsbVbusChanged = 1;
+#endif
   }
 
   Fx3WriteReg32(FX3_VIC_ADDRESS, 0);
@@ -678,10 +770,16 @@ void Fx3UsbEnableInEndpoint(uint8_t ep, Fx3UsbEndpointType_t type, uint16_t pkts
   };
 
   /* USB3 EP valid */
-  Fx3WriteReg32(FX3_PROT_EPI_CS1+(ep<<2), FX3_PROT_EPI_CS1_VALID);
-  Fx3WriteReg32(FX3_PROT_EPI_CS2+(ep<<2),
-		(16UL << FX3_PROT_EPI_CS2_ISOINPKS_SHIFT) |
-		((type << FX3_PROT_EPI_CS2_TYPE_SHIFT) & FX3_PROT_EPI_CS2_TYPE_MASK));
+  uint32_t epi_cs1 = FX3_PROT_EPI_CS1_VALID;
+  Fx3WriteReg32(FX3_PROT_EPI_CS1+(ep<<2), epi_cs1);
+  uint32_t epi_cs2 =
+		((type << FX3_PROT_EPI_CS2_TYPE_SHIFT) &
+		 FX3_PROT_EPI_CS2_TYPE_MASK) |
+		(16UL << FX3_PROT_EPI_CS2_ISOINPKS_SHIFT);
+  if (type == FX3_USB_EP_BULK)
+    epi_cs2 |= (11UL << FX3_PROT_EPI_CS2_MAXBURST_SHIFT) &
+		FX3_PROT_EPI_CS2_MAXBURST_MASK;
+  Fx3WriteReg32(FX3_PROT_EPI_CS2+(ep<<2), epi_cs2);
 
   /* USB2 EP valid */
   Fx3WriteReg32(FX3_DEV_EPI_CS+(ep<<2),
@@ -693,67 +791,12 @@ void Fx3UsbEnableInEndpoint(uint8_t ep, Fx3UsbEndpointType_t type, uint16_t pkts
   Fx3WriteReg32(FX3_EEPM_ENDPOINT+(ep<<2),
 		(pktsize << FX3_EEPM_ENDPOINT_PACKET_SIZE_SHIFT)
 		& FX3_EEPM_ENDPOINT_PACKET_SIZE_MASK);
+
 }
 
 void Fx3UsbFlushInEndpoint(uint8_t ep)
 {
   Fx3SetReg32(FX3_EEPM_ENDPOINT+(ep<<2), FX3_EEPM_ENDPOINT_SOCKET_FLUSH);
-  Fx3UtilDelayUs(5);
+  Fx3UtilDelayUs(10);
   Fx3ClearReg32(FX3_EEPM_ENDPOINT+(ep<<2), FX3_EEPM_ENDPOINT_SOCKET_FLUSH);
-}
-
-static int WaitEndpointRegister(uint32_t reg, uint32_t mask)
-{
-  /* Do not hang the setup ISR if the endpoint reset cannot complete. */
-  for (unsigned i = 0; i < 1000; i++) {
-    if (Fx3ReadReg32(reg) & mask)
-      return 1;
-    Fx3UtilDelayUs(1);
-  }
-  Fx3UartTxString("Endpoint reset timeout\n");
-  return 0;
-}
-
-void Fx3UsbSetInEndpointNak(uint8_t ep, int nak)
-{
-  if (nak) {
-    Fx3SetReg32(FX3_PROT_EPI_CS1 + (ep << 2), FX3_PROT_EPI_CS1_NRDY);
-    Fx3SetReg32(FX3_DEV_EPI_CS + (ep << 2), FX3_DEV_EPI_CS_NAK);
-  } else {
-    Fx3ClearReg32(FX3_PROT_EPI_CS1 + (ep << 2), FX3_PROT_EPI_CS1_NRDY);
-    Fx3ClearReg32(FX3_DEV_EPI_CS + (ep << 2), FX3_DEV_EPI_CS_NAK);
-  }
-}
-
-int Fx3UsbClearInEndpointHalt(uint8_t ep, Fx3UsbSpeed_t s)
-{
-  if (!ep || ep > 15)
-    return 0;
-
-  if (s == FX3_USB_SUPER_SPEED) {
-    uint32_t reg = FX3_PROT_EPI_CS1 + (ep << 2);
-    uint32_t cs = Fx3ReadReg32(reg);
-    if (!(cs & FX3_PROT_EPI_CS1_VALID))
-      return 0;
-    /* Reset endpoint state, clear halt, then reset the packet sequence.
-     * This follows CyU3PUsbStall(ep, false, true) in Cypress SDK 1.3.5.
-     */
-    Fx3WriteReg32(reg, cs | FX3_PROT_EPI_CS1_EP_RESET);
-    Fx3UtilDelayUs(1);
-    Fx3WriteReg32(reg, cs & ~(FX3_PROT_EPI_CS1_EP_RESET |
-			     FX3_PROT_EPI_CS1_STALL));
-    Fx3WriteReg32(FX3_PROT_SEQ_NUM, FX3_PROT_SEQ_NUM_COMMAND |
-		  FX3_PROT_SEQ_NUM_DIR | ep);
-    return WaitEndpointRegister(FX3_PROT_SEQ_NUM, FX3_PROT_SEQ_NUM_SEQ_VALID);
-  }
-
-  uint32_t reg = FX3_DEV_EPI_CS + (ep << 2);
-  if (!(Fx3ReadReg32(reg) & FX3_DEV_EPI_CS_VALID))
-    return 0;
-  Fx3ClearReg32(reg, FX3_DEV_EPI_CS_STALL);
-  Fx3WriteReg32(FX3_DEV_TOGGLE, FX3_DEV_TOGGLE_IO | ep);
-  if (!WaitEndpointRegister(FX3_DEV_TOGGLE, FX3_DEV_TOGGLE_TOGGLE_VALID))
-    return 0;
-  Fx3WriteReg32(FX3_DEV_TOGGLE, FX3_DEV_TOGGLE_IO | FX3_DEV_TOGGLE_R | ep);
-  return WaitEndpointRegister(FX3_DEV_TOGGLE, FX3_DEV_TOGGLE_TOGGLE_VALID);
 }

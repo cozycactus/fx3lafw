@@ -26,8 +26,33 @@
 #include <rdb/uart.h>
 #include <rdb/gctl.h>
 
+/*
+ * The console must never be able to stop the firmware: it is the only way to
+ * see how far boot got, and a UART that is unpowered, unrouted or not being
+ * drained would otherwise spin forever inside Fx3UartTxString() long before
+ * Fx3UsbConnect(), leaving the board looking dead to the host.
+ */
+#define FX3_UART_WAIT_US 10000
+
+static uint8_t uart_ready;
+
+static uint8_t Fx3UartWaitForBit(uint32_t reg, uint32_t mask,
+				 unsigned timeout_us)
+{
+  unsigned waited;
+
+  for (waited = 0; waited < timeout_us; waited += 5) {
+    if (Fx3ReadReg32(reg) & mask)
+      return 1;
+    Fx3UtilDelayUs(5);
+  }
+  return (Fx3ReadReg32(reg) & mask) != 0;
+}
+
 void Fx3UartInit(uint32_t baud_rate, Fx3UartParity_t parity, Fx3UartStopBits_t stop_bits)
 {
+  uart_ready = 0;
+
   /* Configure baud rate generator */
   Fx3WriteReg32(FX3_GCTL_UART_CORE_CLK,
 		(((SYS_CLK/16 / baud_rate - 1) << FX3_GCTL_UART_CORE_CLK_DIV_SHIFT) & FX3_GCTL_UART_CORE_CLK_DIV_MASK) |
@@ -38,20 +63,33 @@ void Fx3UartInit(uint32_t baud_rate, Fx3UartParity_t parity, Fx3UartStopBits_t s
   Fx3WriteReg32(FX3_UART_POWER, 0);
   Fx3UtilDelayUs(10);
   Fx3WriteReg32(FX3_UART_POWER, FX3_UART_POWER_RESETN);
-  while(!(Fx3ReadReg32(FX3_UART_POWER) & FX3_UART_POWER_ACTIVE))
-    ;
+  if (!Fx3UartWaitForBit(FX3_UART_POWER, FX3_UART_POWER_ACTIVE,
+			 FX3_UART_WAIT_US))
+    return;
 
   /* Configure and enable UART */
   Fx3WriteReg32(FX3_UART_CONFIG,
 		stop_bits | parity |
 		FX3_UART_CONFIG_ENABLE |
 		FX3_UART_CONFIG_TX_ENABLE);
+  uart_ready = 1;
+}
+
+uint8_t Fx3UartIsReady(void)
+{
+  return uart_ready;
 }
 
 void Fx3UartTxByte(uint8_t byte)
 {
-  while(!(Fx3ReadReg32(FX3_UART_STATUS) & FX3_UART_STATUS_TX_SPACE))
-    ;
+  if (!uart_ready)
+    return;
+  if (!Fx3UartWaitForBit(FX3_UART_STATUS, FX3_UART_STATUS_TX_SPACE,
+			 FX3_UART_WAIT_US)) {
+    /* A working UART drains a byte in ~87us at 115200; give up for good. */
+    uart_ready = 0;
+    return;
+  }
   Fx3WriteReg32(FX3_UART_EGRESS_DATA, byte);
 }
 
@@ -77,6 +115,8 @@ extern void Fx3UartTxString(const char *str)
 
 void Fx3UartTxFlush(void)
 {
-  while(!(Fx3ReadReg32(FX3_UART_STATUS) & FX3_UART_STATUS_TX_DONE))
-    ;
+  if (!uart_ready)
+    return;
+  Fx3UartWaitForBit(FX3_UART_STATUS, FX3_UART_STATUS_TX_DONE,
+		    FX3_UART_WAIT_US);
 }

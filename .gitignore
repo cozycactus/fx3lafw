@@ -7,4 +7,10 @@
 *.fw
 tags
 *gitignore
+/tools/fx3lafw-load
+/tools/fx3lafw-load-test
+/tools/ulpi-capture-check-test
 /tools/fx3lafw-reset
+/tools/fx3lafw-status
+/tools/fx3lafw-ulpi-status
+/tools/ulpi-capture-check

@@ -94,6 +94,16 @@
 
 #define FX3_PIB_DLL_CTRL_ENABLE_RESET_ON_ERR             (1UL << 31)
 #define FX3_PIB_DLL_CTRL_DLL_RESET_N                     (1UL << 30)
+#define FX3_PIB_DLL_CTRL_CORE_PHASE_SELECT_SHIFT         4
+#define FX3_PIB_DLL_CTRL_CORE_PHASE_SELECT_BITS          4
+#define FX3_PIB_DLL_CTRL_CORE_PHASE_SELECT_MASK          (0xfUL << 4)
+#define FX3_PIB_DLL_CTRL_DLL_MODE                         (1UL << 16)
+#define FX3_PIB_DLL_CTRL_DLL_SLAVE_DLY_SHIFT              17
+#define FX3_PIB_DLL_CTRL_DLL_SLAVE_DLY_BITS               10
+#define FX3_PIB_DLL_CTRL_DLL_SLAVE_DLY_MASK               (0x3ffUL << 17)
+#define FX3_PIB_DLL_CTRL_DLL_DFT_MODE_SHIFT               27
+#define FX3_PIB_DLL_CTRL_DLL_DFT_MODE_BITS                3
+#define FX3_PIB_DLL_CTRL_DLL_DFT_MODE_MASK                (7UL << 27)
 #define FX3_PIB_DLL_CTRL_DLL_STAT                        (1UL << 2)
 #define FX3_PIB_DLL_CTRL_HIGH_FREQ                       (1UL << 1)
 #define FX3_PIB_DLL_CTRL_ENABLE                          (1UL << 0)

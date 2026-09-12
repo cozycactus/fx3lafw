@@ -31,8 +31,25 @@
     FX3_SCK_STATUS_EN_PROD_EVENTS  |		\
     FX3_SCK_STATUS_TRUNCATE )
 
+#ifdef FX3_ULPI_SNIFFER
+#define FX3_DMA_POLL_LIMIT 10000UL
+#endif
+
 static uint16_t Fx3DmaDescriptorFirstUnallocated = 1;
 static uint16_t Fx3DmaDescriptorFreeListHead = 0;
+
+#ifdef FX3_ULPI_SNIFFER
+static void Fx3DmaBarrierSync(void)
+{
+  uint32_t zero = 0;
+
+  __asm__ __volatile__(
+    "mcr p15, 0, %0, c7, c10, 4"
+    :
+    : "r"(zero)
+    : "memory");
+}
+#endif
 
 uint16_t Fx3DmaAllocateDescriptor(void)
 {
@@ -60,17 +77,40 @@ void Fx3DmaFreeDescriptor(uint16_t d)
 
 void Fx3DmaAbortSocket(uint32_t socket)
 {
+#ifdef FX3_ULPI_SNIFFER
+  uint32_t status = Fx3ReadReg32(socket + FX3_SCK_STATUS);
+
+  if (status & FX3_SCK_STATUS_SUSPENDED) {
+    Fx3WriteReg32(socket + FX3_SCK_STATUS,
+		  status & ~FX3_SCK_STATUS_GO_SUSPEND);
+    Fx3WriteReg32(socket + FX3_SCK_INTR,
+		  FX3_SCK_INTR_LAST_BUF | FX3_SCK_INTR_SUSPEND);
+    Fx3DmaBarrierSync();
+  }
+#endif
+
   Fx3ClearReg32(socket + FX3_SCK_STATUS,
-		FX3_SCK_STATUS_GO_ENABLE |
-		FX3_SCK_STATUS_WRAPUP);
+			FX3_SCK_STATUS_GO_ENABLE |
+			FX3_SCK_STATUS_WRAPUP);
   Fx3WriteReg32(socket + FX3_SCK_INTR, ~0);
+#ifdef FX3_ULPI_SNIFFER
+  uint32_t polls = FX3_DMA_POLL_LIMIT;
+  while(Fx3ReadReg32(socket + FX3_SCK_STATUS) & FX3_SCK_STATUS_ENABLED) {
+    if (!polls) {
+      Fx3UartTxString("DMA abort timeout\n");
+      break;
+    }
+    polls--;
+  }
+#else
   while((Fx3ReadReg32(socket + FX3_SCK_STATUS) & FX3_SCK_STATUS_ENABLED))
     ;
+#endif
 }
 
 static void Fx3DmaFillDescriptor(uint16_t descriptor, uint32_t buffer,
-				 uint32_t sync, uint32_t size,
-				 uint16_t wrchain, uint16_t rdchain)
+					 uint32_t sync, uint32_t size,
+					 uint16_t wrchain, uint16_t rdchain)
 {
   volatile struct Fx3DmaDescriptor *desc = FX3_DMA_DESCRIPTOR(descriptor);
 
@@ -85,7 +125,6 @@ static void Fx3DmaFillDescriptor(uint16_t descriptor, uint32_t buffer,
     (rdchain << FX3_DSCR_CHAIN_RD_NEXT_DSCR_SHIFT);
 
   Fx3CacheCleanDCacheEntry(desc);
-  Fx3CacheDrainWriteBuffer();
 }
 
 static void Fx3DmaTransferStart(uint32_t socket, uint16_t descriptor,
@@ -106,19 +145,13 @@ static void Fx3DmaTransferStart(uint32_t socket, uint16_t descriptor,
 
   Fx3SetReg32(socket + FX3_SCK_STATUS,
 	      FX3_SCK_STATUS_GO_ENABLE);
-  /* Complete socket configuration before GPIF or another socket can run. */
-  Fx3CacheDrainWriteBuffer();
-  if (!(status & FX3_SCK_STATUS_UNIT)) {
-    /* GO_ENABLE is a request; GPIF must wait for the socket to be active.
-     * Single-buffer EP0 transfers instead wait for their completion event.
-     */
-    while (!(Fx3ReadReg32(socket + FX3_SCK_STATUS) & FX3_SCK_STATUS_ENABLED))
-      ;
-  }
 }
 
 static void Fx3DmaWaitForEvent(uint32_t socket, uint32_t event)
 {
+#ifdef FX3_ULPI_SNIFFER
+  uint32_t polls = FX3_DMA_POLL_LIMIT;
+#endif
   for(;;) {
     uint32_t status = Fx3ReadReg32(socket + FX3_SCK_INTR);
     if (status & FX3_SCK_INTR_ERROR) {
@@ -128,23 +161,53 @@ static void Fx3DmaWaitForEvent(uint32_t socket, uint32_t event)
     if (status & event)
       return;
 
-    /* timeout? */
+#ifdef FX3_ULPI_SNIFFER
+    if (!polls) {
+      Fx3UartTxString("DMA event timeout\n");
+      Fx3DmaAbortSocket(socket);
+      return;
+    }
+    polls--;
+#endif
   }
 }
+
+#ifdef FX3_ULPI_SNIFFER
+static uint8_t Fx3DmaWaitForEventChecked(uint32_t socket, uint32_t event)
+{
+  uint32_t polls = FX3_DMA_POLL_LIMIT;
+
+  while (polls--) {
+    uint32_t status = Fx3ReadReg32(socket + FX3_SCK_INTR);
+    if (status & FX3_SCK_INTR_ERROR) {
+      Fx3UartTxString("DMA error\n");
+      return 0;
+    }
+    if (status & event)
+      return 1;
+  }
+
+  Fx3UartTxString("DMA event timeout\n");
+  Fx3DmaAbortSocket(socket);
+  return 0;
+}
+#endif
 
 void Fx3DmaFillDescriptorThrough(uint32_t prod_socket, uint32_t cons_socket,
 				 uint16_t descriptor, volatile void *buffer,
 				 uint16_t length, uint16_t wrchain, uint16_t rdchain)
 {
-  Fx3DmaFillDescriptor(descriptor, (uint32_t)buffer,
-		       FX3_DSCR_SYNC_EN_PROD_INT |
-		       FX3_DSCR_SYNC_EN_PROD_EVENT |
-		       (FX3_DMA_SOCKET_IP(prod_socket) << FX3_DSCR_SYNC_PROD_IP_SHIFT) |
-		       (FX3_DMA_SOCKET_SCK(prod_socket) << FX3_DSCR_SYNC_PROD_SCK_SHIFT) |
-		       FX3_DSCR_SYNC_EN_CONS_INT |
-		       FX3_DSCR_SYNC_EN_CONS_EVENT |
-		       (FX3_DMA_SOCKET_IP(cons_socket) << FX3_DSCR_SYNC_CONS_IP_SHIFT) |
-		       (FX3_DMA_SOCKET_SCK(cons_socket) << FX3_DSCR_SYNC_CONS_SCK_SHIFT),
+  uint32_t sync = FX3_DSCR_SYNC_EN_PROD_EVENT |
+    (FX3_DMA_SOCKET_IP(prod_socket) << FX3_DSCR_SYNC_PROD_IP_SHIFT) |
+    (FX3_DMA_SOCKET_SCK(prod_socket) << FX3_DSCR_SYNC_PROD_SCK_SHIFT) |
+    FX3_DSCR_SYNC_EN_CONS_EVENT |
+    (FX3_DMA_SOCKET_IP(cons_socket) << FX3_DSCR_SYNC_CONS_IP_SHIFT) |
+    (FX3_DMA_SOCKET_SCK(cons_socket) << FX3_DSCR_SYNC_CONS_SCK_SHIFT);
+
+#ifndef FX3_ULPI_SNIFFER
+  sync |= FX3_DSCR_SYNC_EN_PROD_INT | FX3_DSCR_SYNC_EN_CONS_INT;
+#endif
+  Fx3DmaFillDescriptor(descriptor, (uint32_t)buffer, sync,
 		       (length + 15) & FX3_DSCR_SIZE_BUFFER_SIZE_MASK,
 		       wrchain, rdchain);
 }
@@ -191,13 +254,33 @@ void Fx3DmaSimpleTransferRead(uint32_t socket, uint16_t descriptor,
 }
 
 void Fx3DmaSimpleTransferWrite(uint32_t socket, uint16_t descriptor,
-			       volatile void *buffer, uint16_t length)
+				       volatile void *buffer, uint16_t length)
 {
   Fx3DmaFillDescriptorWrite(socket, descriptor, buffer, length, 0xFFFFU);
   Fx3DmaTransferStart(socket, descriptor,
 		      FX3_SCK_STATUS_DEFAULT | FX3_SCK_STATUS_UNIT, 1, 0);
   Fx3DmaWaitForEvent(socket, FX3_SCK_INTR_PRODUCE_EVENT);
 }
+
+#ifdef FX3_ULPI_SNIFFER
+uint8_t Fx3DmaSimpleTransferReadChecked(uint32_t socket, uint16_t descriptor,
+				       const volatile void *buffer, uint16_t length)
+{
+  Fx3DmaFillDescriptorRead(socket, descriptor, buffer, length, 0xFFFFU);
+  Fx3DmaTransferStart(socket, descriptor,
+		      FX3_SCK_STATUS_DEFAULT | FX3_SCK_STATUS_UNIT, 1, 0);
+  return Fx3DmaWaitForEventChecked(socket, FX3_SCK_INTR_CONSUME_EVENT);
+}
+
+uint8_t Fx3DmaSimpleTransferWriteChecked(uint32_t socket, uint16_t descriptor,
+					volatile void *buffer, uint16_t length)
+{
+  Fx3DmaFillDescriptorWrite(socket, descriptor, buffer, length, 0xFFFFU);
+  Fx3DmaTransferStart(socket, descriptor,
+		      FX3_SCK_STATUS_DEFAULT | FX3_SCK_STATUS_UNIT, 1, 0);
+  return Fx3DmaWaitForEventChecked(socket, FX3_SCK_INTR_PRODUCE_EVENT);
+}
+#endif
 
 void Fx3DmaStartProducer(uint32_t socket, uint16_t descriptor,
 			 uint32_t size, uint32_t count)

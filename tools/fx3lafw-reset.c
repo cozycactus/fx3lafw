@@ -52,7 +52,7 @@ static int parse_conn(const char *text, uint8_t *bus, uint8_t *addr)
 	return 0;
 }
 
-static int reset_device(libusb_device_handle *handle)
+static int reset_device(libusb_device_handle *handle, int force)
 {
 	int ret;
 
@@ -69,6 +69,20 @@ static int reset_device(libusb_device_handle *handle)
 		return 0;
 	}
 
+	if (force && ret == LIBUSB_ERROR_TIMEOUT) {
+		fprintf(stderr,
+			"Firmware reset timed out; attempting an explicit USB bus reset.\n");
+		ret = libusb_reset_device(handle);
+		if (ret == 0) {
+			fprintf(stderr,
+				"USB bus reset completed; run the command again to reset firmware.\n");
+			return 2;
+		}
+		fprintf(stderr, "Unable to reset the USB device: %s\n",
+			libusb_error_name(ret));
+		return 1;
+	}
+
 	fprintf(stderr, "Unable to send reset command: %s\n",
 		libusb_error_name(ret));
 	return 1;
@@ -83,10 +97,16 @@ int main(int argc, char **argv)
 	ssize_t count;
 	uint8_t want_bus = 0, want_addr = 0;
 	int have_conn = 0;
+	int force = 0;
 	int ret = 1;
 
+	if (argc == 3 && !strcmp(argv[1], "--force")) {
+		force = 1;
+		argv++;
+		argc--;
+	}
 	if (argc > 2) {
-		fprintf(stderr, "Usage: %s [bus.address]\n", argv[0]);
+		fprintf(stderr, "Usage: %s [--force] [bus.address]\n", argv[0]);
 		return 2;
 	}
 	if (argc == 2) {
@@ -128,29 +148,48 @@ int main(int argc, char **argv)
 			continue;
 
 		if (get_string(handle, desc.iManufacturer, manufacturer,
-				sizeof(manufacturer)) < 0 ||
+					sizeof(manufacturer)) < 0 ||
 				get_string(handle, desc.iProduct, product,
-				sizeof(product)) < 0) {
+					sizeof(product)) < 0) {
+			if (force && have_conn) {
+				fprintf(stderr, "USB strings unavailable; forcing reset "
+					"of explicitly selected FX3 at %u.%u.\n",
+					bus, addr);
+				ret = reset_device(handle, force);
+				libusb_close(handle);
+				handle = NULL;
+				goto out;
+			}
 			libusb_close(handle);
 			handle = NULL;
 			continue;
 		}
 
 		if (strcmp(manufacturer, "sigrok") ||
-				strcmp(product, "fx3lafw")) {
+				(strcmp(product, "fx3lafw") &&
+				 strcmp(product, "fx3ulpifw"))) {
+			if (force && have_conn) {
+				fprintf(stderr, "Forcing reset of explicitly selected "
+					"FX3 at %u.%u (%s/%s).\n",
+					bus, addr, manufacturer, product);
+				ret = reset_device(handle, force);
+				libusb_close(handle);
+				handle = NULL;
+				goto out;
+			}
 			libusb_close(handle);
 			handle = NULL;
 			continue;
 		}
 
-		printf("Resetting fx3lafw on %u.%u\n", bus, addr);
-		ret = reset_device(handle);
+		printf("Resetting %s on %u.%u\n", product, bus, addr);
+		ret = reset_device(handle, force);
 		libusb_close(handle);
 		handle = NULL;
 		goto out;
 	}
 
-	fprintf(stderr, "No loaded sigrok/fx3lafw device found");
+	fprintf(stderr, "No loaded sigrok FX3 firmware found");
 	if (have_conn)
 		fprintf(stderr, " at %u.%u", want_bus, want_addr);
 	fprintf(stderr, ".\n");

@@ -43,7 +43,8 @@ make -j4 all host-tools
 ```
 
 The optional host reset helper can be built with `make host-tools`. It sends the
-firmware `CMD_RESET` vendor request to a loaded `sigrok/fx3lafw` device:
+firmware `CMD_RESET` vendor request to a loaded `sigrok/fx3lafw` or
+`sigrok/fx3ulpifw` device:
 
 ```
 tools/fx3lafw-reset
@@ -57,6 +58,10 @@ same-process re-enumeration; the helper retries with a fresh scan and only
 passes after that scan reports the expected firmware.
 Set `FX3_SIGROK_CLI`, `FX3_PREFIX`, or `FX3_EXPECT_FW` when using a non-default
 test install.
+
+An experimental USB3300 ULPI analyzer image is documented in
+[ULPI_ANALYZER.md](ULPI_ANALYZER.md). It is a separate build and does not alter
+the normal `fx3lafw-cypress-fx3.fw` image.
 
 
 License

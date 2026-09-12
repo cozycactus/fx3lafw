@@ -40,6 +40,9 @@ typedef enum {
 } Fx3UartStopBits_t;
 
 extern void Fx3UartInit(uint32_t baud_rate, Fx3UartParity_t parity, Fx3UartStopBits_t stop_bits);
+/* False once the UART failed to power up or stopped draining; all transmit
+ * calls then become no-ops instead of blocking the firmware. */
+extern uint8_t Fx3UartIsReady(void);
 extern void Fx3UartTxByte(uint8_t byte);
 extern void Fx3UartTxBytes(const uint8_t *byte, size_t cnt);
 extern void Fx3UartTxChar(char c);

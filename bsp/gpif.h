@@ -230,7 +230,17 @@ extern void Fx3GpifConfigureCompat(const Fx3GpifWaveformCompat_t *waveforms,
 				   uint16_t num_waveforms,
 				   const uint16_t *functions, uint16_t num_functions,
 				   const uint32_t *registers, uint16_t num_registers);
-extern void Fx3GpifPibStart(uint16_t clock_divisor_x2, uint8_t external_clock);
+extern void Fx3GpifPibStart(uint16_t clock_divisor_x2);
+/*
+ * With an externally supplied interface clock the PIB core clock is not
+ * derived from the interface clock, so the two divisors differ: the core
+ * divisor sets how fast the socket/DMA side runs, the interface divisor only
+ * selects the DLL frequency range for the incoming pin clock.
+ */
+extern void Fx3GpifPibStartEx(uint16_t core_divisor_x2,
+			      uint16_t iface_divisor_x2);
+/* Whether the last Fx3GpifPibStart*() saw the PIB DLL lock. */
+extern uint8_t Fx3GpifPibDllLocked(void);
 extern void Fx3GpifPibStop(void);
 extern Fx3GpifStat_t Fx3GpifGetStat(uint8_t *current_state);
 

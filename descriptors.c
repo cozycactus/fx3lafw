@@ -5,6 +5,12 @@
 
 #include "descriptors.h"
 
+#ifdef FX3_ULPI_SNIFFER
+#define FX3_FW_PRODUCT_DESCRIPTOR u"\x0314" "fx3ulpifw"
+#else
+#define FX3_FW_PRODUCT_DESCRIPTOR u"\x0310" "fx3lafw"
+#endif
+
 static const struct __attribute__((packed)) {
   uint8_t length, descriptor_type;
   uint16_t usb_version;
@@ -171,7 +177,11 @@ static const struct __attribute__((packed)) {
   .companions[0] = {
      .length = sizeof(superspeed_configuration_descriptor.companions[0]),
      .descriptor_type = FX3_USB_DESCRIPTOR_SS_EP_COMPANION,
-     .max_burst = 0,
+#ifdef FX3_ULPI_SNIFFER
+     .max_burst = 15, /* SDK gpiftousbmulti: 16 packets per burst. */
+#else
+     .max_burst = 11, /* bMaxBurst is 0-based: 11 => 12 packets per burst. */
+#endif
      .max_streams = 0,
      .service_interval = 0
    },
@@ -225,7 +235,7 @@ static const struct __attribute__((packed)) {
 static const uint16_t * const string_descriptors[] = {
   [0] = u"\x0304" "\x0409", /* US english only */
   [1] = u"\x030e" "sigrok",
-  [2] = u"\x0310" "fx3lafw",
+  [2] = FX3_FW_PRODUCT_DESCRIPTOR,
   [3] = u"\x0312" "12345678",
 };
 
@@ -257,4 +267,3 @@ const void *GetDescriptor(uint8_t descriptor_type, uint8_t descriptor_no, Fx3Usb
   }
   return NULL;
 }
-
