@@ -59,6 +59,28 @@ Set `FX3_SIGROK_CLI`, `FX3_PREFIX`, or `FX3_EXPECT_FW` when using a non-default
 test install.
 
 
+USB link recovery
+-----------------
+
+Host power events can take the port away from the device without removing
+USB power: resuming from sleep, a hub reset, or a driver restarting the
+device. When the SuperSpeed link does not retrain after such an event, the
+board stays powered but off the bus, and it used to need a physical replug
+before any host could see it again.
+
+The firmware now watches its own link. Once the host has enumerated the
+device, a link that stays out of the connected states for a few seconds
+resets the chip, so the board comes back as the FX3 bootloader. The
+bootloader is always enumerable and the host driver uploads the firmware
+again on the next scan, which means `sigrok-cli` or PulseView simply
+re-detect the analyzer instead of asking for a replug. A capture that was
+running when the link died is lost.
+
+`tools/fx3lafw-usb-events` prints the counters behind this behaviour
+(suspend/resume/reset events, link up/down, setup packets, self resets) for
+a loaded device, which makes a misbehaving port visible.
+
+
 License
 -------
 
