@@ -79,9 +79,11 @@ int main(int argc, char **argv)
 		goto out;
 	}
 
-	printf("suspend=%u resume=%u reset=%u link_down=%u link_up=%u\n",
+	printf("suspend=%u resume=%u reset=%u link_down=%u link_up=%u "
+		"setup=%u reconnect=%u vbus_present=%u link_reset=%u\n",
 		events.suspend, events.resume, events.reset,
-		events.link_down, events.link_up);
+		events.link_down, events.link_up, events.setup,
+		events.reconnect, events.vbus_present, events.link_reset);
 	ret = 0;
 
 out:

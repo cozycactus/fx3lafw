@@ -41,6 +41,7 @@ static void Fx3UsbGctlPowerIsr(void) __attribute__ ((isr ("IRQ")));
 volatile uint8_t Fx3UsbVbusSeen;
 
 static void Fx3UsbEnablePhy(void);
+static void Fx3UsbServiceVbus(void);
 
 volatile uint32_t Fx3UsbEvtSuspend;
 volatile uint32_t Fx3UsbEvtResume;
@@ -53,6 +54,11 @@ static volatile uint8_t Fx3UsbVbusLost;
 volatile uint8_t Fx3UsbReconnectPending;
 volatile uint32_t Fx3UsbEvtSetup;
 volatile uint32_t Fx3UsbEvtReconnect;
+volatile uint32_t Fx3UsbEvtLinkReset;
+
+/* Set while the firmware runs the USB 2.0 fallback: the SuperSpeed link is
+ * then deliberately in SS.Disabled instead of U0. */
+static volatile uint8_t usb2_mode;
 
 /*
  * A port that lost and restored VBUS (host sleep, hub power event) leaves
@@ -62,12 +68,6 @@ volatile uint32_t Fx3UsbEvtReconnect;
  * does not talk to us shortly after that, reset the chip: the board then
  * comes back as the FX3 bootloader, which is always enumerable.
  */
-#define FX3_USB_HOST_SILENT_RESET_MS 10000UL
-
-static volatile uint32_t host_silent_ms;
-static volatile uint32_t host_silent_setup_count;
-static volatile uint8_t host_silent_armed;
-
 void Fx3UsbServiceReconnect(void)
 {
   if (!Fx3UsbReconnectPending)
@@ -75,19 +75,17 @@ void Fx3UsbServiceReconnect(void)
 
   Fx3UsbReconnectPending = 0;
   Fx3UsbEvtReconnect++;
-  Fx3UartTxString("VBUS back: re-enabling the PHY\n");
-  Fx3UartTxFlush();
-  Fx3UsbEnablePhy();
 
-  /* Give the host a moment to enumerate us again - but only if it has ever
-   * talked to us, otherwise a device that nobody has opened yet would reset
-   * itself in a loop.
+  /*
+   * The link never came back on its own after a port power event, and
+   * re-initialising the PHY underneath a running device disturbed the
+   * enumeration instead of repairing it.  Reset the chip: the board comes
+   * back as the FX3 bootloader, which any host can enumerate and reload,
+   * and the firmware cannot wedge a half-configured USB block that way.
    */
-  if (Fx3UsbEvtSetup) {
-    host_silent_setup_count = Fx3UsbEvtSetup;
-    host_silent_ms = 0;
-    host_silent_armed = 1;
-  }
+  Fx3UartTxString("VBUS returned; self reset\n");
+  Fx3UartTxFlush();
+  Fx3GctlHardReset();
 }
 
 /*
@@ -100,11 +98,42 @@ void Fx3UsbServiceReconnect(void)
  */
 #define FX3_USB_SUSPEND_RESET_MS 60000UL
 
+/*
+ * The host can also take the port away without ever dropping VBUS: a wake
+ * from sleep, a hub reset, or the driver restarting the device re-trains
+ * the SuperSpeed link, and when that training fails the LTSSM parks in
+ * Rx.Detect while the firmware keeps running happily.  The board is then
+ * off the bus until it is replugged, so treat a link that stays out of the
+ * connected states for a few ticks as dead and reset the chip.
+ *
+ * LTSSM state codes: 0x00 SS.Disabled (USB 2.0 fallback), 0x01 Rx.Detect,
+ * 0x10 U0 (link up), 0x18 U3 (link suspended by the host).
+ */
+#define FX3_USB_LTSSM_U0 0x10UL
+#define FX3_USB_LTSSM_U3 0x18UL
+#define FX3_USB_LINK_DEAD_MS 3000UL
+
 static volatile uint32_t usb_suspend_ms;
+static volatile uint32_t usb_link_bad_ms;
 static volatile uint8_t usb_suspended;
 
-void Fx3UsbSuspendTick(uint32_t ms)
+static int Fx3UsbLinkHealthy(void)
 {
+  /* Before the host has talked to us the link is still training, and after
+   * an SS connection the USB 2.0 fallback parks it in SS.Disabled. */
+  if (!Fx3UsbEvtSetup || !Fx3UsbEvtLinkUp || usb2_mode || usb_suspended)
+    return 1;
+
+  uint32_t state = Fx3ReadReg32(FX3_LNK_LTSSM_STATE) &
+    FX3_LNK_LTSSM_STATE_LTSSM_STATE_MASK;
+
+  return state == FX3_USB_LTSSM_U0 || state == FX3_USB_LTSSM_U3;
+}
+
+void Fx3UsbServiceTick(uint32_t ms)
+{
+  Fx3UsbServiceVbus();
+
   if (usb_suspended) {
     usb_suspend_ms += ms;
     if (usb_suspend_ms >= FX3_USB_SUSPEND_RESET_MS) {
@@ -114,15 +143,45 @@ void Fx3UsbSuspendTick(uint32_t ms)
     }
   }
 
-  if (host_silent_armed) {
-    host_silent_ms += ms;
-    if (Fx3UsbEvtSetup != host_silent_setup_count) {
-      host_silent_armed = 0;
-    } else if (host_silent_ms >= FX3_USB_HOST_SILENT_RESET_MS) {
-      Fx3UartTxString("No host after VBUS returned; self reset\n");
+  if (!Fx3UsbLinkHealthy()) {
+    usb_link_bad_ms += ms;
+    if (usb_link_bad_ms >= FX3_USB_LINK_DEAD_MS) {
+      Fx3UsbEvtLinkReset++;
+      Fx3UartTxString("USB link down; self reset\n");
       Fx3UartTxFlush();
       Fx3GctlHardReset();
     }
+  } else {
+    usb_link_bad_ms = 0;
+  }
+}
+
+/*
+ * The VBUS interrupt can be missed while the USB block is re-initialised
+ * (a port power cycle was observed to leave the flag stale), so keep the
+ * same state from the register, and use the interrupt only as an early
+ * wake-up.  Polling also gives the real loss-then-return edge that the
+ * recovery below depends on.
+ */
+static void Fx3UsbServiceVbus(void)
+{
+  uint8_t present = (Fx3ReadReg32(FX3_GCTL_IOPOWER) & FX3_GCTL_IOPOWER_VBUS) != 0;
+
+  if (present == Fx3UsbVbusPresent)
+    return;
+
+  Fx3UsbVbusPresent = present;
+  if (present) {
+    Fx3UartTxString("VBUS present\n");
+    /* Only a real loss counts: the pending interrupt during boot must not
+     * restart the PHY that was just brought up. */
+    if (Fx3UsbVbusLost) {
+      Fx3UsbVbusLost = 0;
+      Fx3UsbReconnectPending = 1;
+    }
+  } else {
+    Fx3UartTxString("VBUS lost\n");
+    Fx3UsbVbusLost = 1;
   }
 }
 
@@ -136,6 +195,7 @@ void Fx3UsbGetEvents(Fx3UsbEvents_t *events)
   events->setup = Fx3UsbEvtSetup;
   events->reconnect = Fx3UsbEvtReconnect;
   events->vbus_present = Fx3UsbVbusPresent;
+  events->link_reset = Fx3UsbEvtLinkReset;
 }
 
 static int Fx3UsbWaitPhyBit(int set)
@@ -173,6 +233,8 @@ static void Fx3UsbWritePhyReg(uint16_t phy_addr, uint16_t phy_val)
 
 static void Fx3UsbConnectHighSpeed(void)
 {
+	/* From here on the SuperSpeed link stays in SS.Disabled on purpose. */
+	usb2_mode = 1;
 	Fx3UsbWritePhyReg(0x1005, 0x0000);
 	/* Force the link state machine into SS.Disabled. */
 	Fx3WriteReg32(FX3_LNK_LTSSM_STATE,(0UL << (6)) | (1UL << 12));
@@ -258,6 +320,7 @@ static void Fx3UsbConnectHighSpeed(void)
 
 static void Fx3UsbConnectSuperSpeed(void)
 {
+  usb2_mode = 0;
   Fx3WriteReg32(FX3_LNK_PHY_TX_TRIM, 0x0b569011UL);
   Fx3UsbWritePhyReg(0x1006, 0x180);
   Fx3UsbWritePhyReg(0x1024, 0x0080);
@@ -396,6 +459,11 @@ void Fx3UsbConnect(void)
   Fx3WriteReg32(FX3_VIC_INT_ENABLE, (1UL << FX3_IRQ_GCTL_POWER));
   if (Fx3ReadReg32(FX3_GCTL_IOPOWER) & FX3_GCTL_IOPOWER_VBUS) {
     Fx3UartTxString("VBUS POWER!\n");
+    /* The VBUS interrupt is pending from before power-good: start the
+     * record from the power that was just measured, so that a stale loss
+     * report cannot trigger the reconnect reset at boot. */
+    Fx3UsbVbusPresent = 1;
+    Fx3UsbVbusLost = 0;
     Fx3UsbEnablePhy();
   }
 }

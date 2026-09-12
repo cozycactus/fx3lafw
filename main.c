@@ -150,6 +150,10 @@ static void VendorCommand(uint8_t request_type, uint8_t request, uint16_t value,
     events->reset = current.reset;
     events->link_down = current.link_down;
     events->link_up = current.link_up;
+    events->setup = current.setup;
+    events->reconnect = current.reconnect;
+    events->vbus_present = current.vbus_present;
+    events->link_reset = current.link_reset;
     Fx3CacheCleanDCacheEntry(DmaBuf);
     Fx3UsbUnstallEp0(s);
     Fx3UsbDmaDataIn(0, DmaBuf, sizeof(struct usb_events));
@@ -286,7 +290,7 @@ int main(void)
 
     Fx3GpioSetOutputValueSimple(54, 1);
     Fx3UtilDelayUs(500000);
-    Fx3UsbSuspendTick(500);
+    Fx3UsbServiceTick(500);
     if (!Fx3GpioGetInputValueSimple(45)) {
       Fx3UartTxString("BUTTON\n");
       Fx3UartTxFlush();
@@ -294,7 +298,7 @@ int main(void)
     }
     Fx3GpioSetOutputValueSimple(54, 0);
     Fx3UtilDelayUs(500000);
-    Fx3UsbSuspendTick(500);
+    Fx3UsbServiceTick(500);
   }
 }
 

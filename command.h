@@ -47,6 +47,7 @@ struct usb_events {
         uint32_t setup;
         uint32_t reconnect;
         uint32_t vbus_present;
+        uint32_t link_reset;
 };
 
 struct acquisition_status {
