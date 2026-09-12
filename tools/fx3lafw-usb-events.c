@@ -51,12 +51,25 @@ int main(int argc, char **argv)
 	count = libusb_get_device_list(ctx, &devices);
 	for (i = 0; i < count; i++) {
 		struct libusb_device_descriptor desc;
+		unsigned char product[64];
+		int product_len;
 
 		if (libusb_get_device_descriptor(devices[i], &desc) != 0)
 			continue;
 		if (desc.idVendor != FX3LAFW_VID || desc.idProduct != FX3LAFW_PID)
 			continue;
 		if (libusb_open(devices[i], &handle) != 0) {
+			handle = NULL;
+			continue;
+		}
+
+		/* The ULPI analyzer image shares the vendor request numbers for
+		 * a different command set, so only ask the analyzer image. */
+		product_len = desc.iProduct ? libusb_get_string_descriptor_ascii(
+			handle, desc.iProduct, product, sizeof(product) - 1) : 0;
+		if (product_len <= 0 ||
+				strcmp((char *)product, "fx3lafw") != 0) {
+			libusb_close(handle);
 			handle = NULL;
 			continue;
 		}
