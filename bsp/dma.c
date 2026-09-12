@@ -31,9 +31,7 @@
     FX3_SCK_STATUS_EN_PROD_EVENTS  |		\
     FX3_SCK_STATUS_TRUNCATE )
 
-#ifdef FX3_ULPI_SNIFFER
 #define FX3_DMA_POLL_LIMIT 10000UL
-#endif
 
 static uint16_t Fx3DmaDescriptorFirstUnallocated = 1;
 static uint16_t Fx3DmaDescriptorFreeListHead = 0;
@@ -93,7 +91,6 @@ void Fx3DmaAbortSocket(uint32_t socket)
 			FX3_SCK_STATUS_GO_ENABLE |
 			FX3_SCK_STATUS_WRAPUP);
   Fx3WriteReg32(socket + FX3_SCK_INTR, ~0);
-#ifdef FX3_ULPI_SNIFFER
   uint32_t polls = FX3_DMA_POLL_LIMIT;
   while(Fx3ReadReg32(socket + FX3_SCK_STATUS) & FX3_SCK_STATUS_ENABLED) {
     if (!polls) {
@@ -102,10 +99,6 @@ void Fx3DmaAbortSocket(uint32_t socket)
     }
     polls--;
   }
-#else
-  while((Fx3ReadReg32(socket + FX3_SCK_STATUS) & FX3_SCK_STATUS_ENABLED))
-    ;
-#endif
 }
 
 static void Fx3DmaFillDescriptor(uint16_t descriptor, uint32_t buffer,
@@ -131,8 +124,14 @@ static void Fx3DmaTransferStart(uint32_t socket, uint16_t descriptor,
 				uint32_t status, uint32_t size, uint32_t count)
 {
   Fx3WriteReg32(socket + FX3_SCK_STATUS, FX3_SCK_STATUS_DEFAULT);
-  while((Fx3ReadReg32(socket + FX3_SCK_STATUS) & FX3_SCK_STATUS_ENABLED))
-    ;
+  uint32_t polls = FX3_DMA_POLL_LIMIT;
+  while(Fx3ReadReg32(socket + FX3_SCK_STATUS) & FX3_SCK_STATUS_ENABLED) {
+    if (!polls) {
+      Fx3UartTxString("DMA start timeout\n");
+      break;
+    }
+    polls--;
+  }
 
   Fx3WriteReg32(socket + FX3_SCK_STATUS, status);
   Fx3WriteReg32(socket + FX3_SCK_INTR, ~0UL);
@@ -145,13 +144,26 @@ static void Fx3DmaTransferStart(uint32_t socket, uint16_t descriptor,
 
   Fx3SetReg32(socket + FX3_SCK_STATUS,
 	      FX3_SCK_STATUS_GO_ENABLE);
+  /* Complete socket configuration before GPIF or another socket can run. */
+  Fx3CacheDrainWriteBuffer();
+  if (!(status & FX3_SCK_STATUS_UNIT)) {
+    /* GO_ENABLE is a request; GPIF must wait for the socket to be active.
+     * Single-buffer EP0 transfers instead wait for their completion event.
+     */
+    polls = FX3_DMA_POLL_LIMIT;
+    while (!(Fx3ReadReg32(socket + FX3_SCK_STATUS) & FX3_SCK_STATUS_ENABLED)) {
+      if (!polls) {
+	Fx3UartTxString("DMA socket enable timeout\n");
+	break;
+      }
+      polls--;
+    }
+  }
 }
 
 static void Fx3DmaWaitForEvent(uint32_t socket, uint32_t event)
 {
-#ifdef FX3_ULPI_SNIFFER
   uint32_t polls = FX3_DMA_POLL_LIMIT;
-#endif
   for(;;) {
     uint32_t status = Fx3ReadReg32(socket + FX3_SCK_INTR);
     if (status & FX3_SCK_INTR_ERROR) {
@@ -161,14 +173,12 @@ static void Fx3DmaWaitForEvent(uint32_t socket, uint32_t event)
     if (status & event)
       return;
 
-#ifdef FX3_ULPI_SNIFFER
     if (!polls) {
       Fx3UartTxString("DMA event timeout\n");
       Fx3DmaAbortSocket(socket);
       return;
     }
     polls--;
-#endif
   }
 }
 

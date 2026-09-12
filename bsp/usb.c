@@ -62,31 +62,37 @@ static void Fx3UsbDisablePhy(void)
 }
 #endif
 
+/* SuperSpeed PHY register handshake: bit 16 acknowledges a request. */
+static int Fx3UsbWaitPhyBit(int set)
+{
+  return Fx3UtilPollReg32(0xe0033028, 1UL << 16,
+			  set? (1UL << 16) : 0, 10000);
+}
+
 static void Fx3UsbWritePhyReg(uint16_t phy_addr, uint16_t phy_val)
 {
+  int ok = 1;
+
   if (!(Fx3ReadReg32(FX3_OTG_CTRL) & FX3_OTG_CTRL_SSDEV_ENABLE))
     return;
 
   Fx3WriteReg32(0xe0033024, phy_addr);
   Fx3WriteReg32(0xe0033024, phy_addr | (1UL << 16));
-  while(!(Fx3ReadReg32(0xe0033028) & (1UL << 16)))
-    ;
+  ok &= Fx3UsbWaitPhyBit(1);
   Fx3WriteReg32(0xe0033024, phy_addr);
-  while((Fx3ReadReg32(0xe0033028) & (1UL << 16)))
-    ;
+  ok &= Fx3UsbWaitPhyBit(0);
   Fx3WriteReg32(0xe0033024, phy_val);
   Fx3WriteReg32(0xe0033024, phy_val | (1UL << 17));
-  while(!(Fx3ReadReg32(0xe0033028) & (1UL << 16)))
-    ;
+  ok &= Fx3UsbWaitPhyBit(1);
   Fx3WriteReg32(0xe0033024, phy_val);
-  while((Fx3ReadReg32(0xe0033028) & (1UL << 16)))
-    ;
+  ok &= Fx3UsbWaitPhyBit(0);
   Fx3WriteReg32(0xe0033024, phy_val | (1UL << 19));
-  while(!(Fx3ReadReg32(0xe0033028) & (1UL << 16)))
-    ;
+  ok &= Fx3UsbWaitPhyBit(1);
   Fx3WriteReg32(0xe0033024, phy_val);
-  while((Fx3ReadReg32(0xe0033028) & (1UL << 16)))
-    ;
+  ok &= Fx3UsbWaitPhyBit(0);
+
+  if (!ok)
+    Fx3UartTxString("PHY register write timeout\n");
 }
 
 
@@ -799,4 +805,60 @@ void Fx3UsbFlushInEndpoint(uint8_t ep)
   Fx3SetReg32(FX3_EEPM_ENDPOINT+(ep<<2), FX3_EEPM_ENDPOINT_SOCKET_FLUSH);
   Fx3UtilDelayUs(10);
   Fx3ClearReg32(FX3_EEPM_ENDPOINT+(ep<<2), FX3_EEPM_ENDPOINT_SOCKET_FLUSH);
+}
+
+static int WaitEndpointRegister(uint32_t reg, uint32_t mask)
+{
+  /* Do not hang the setup ISR if the endpoint reset cannot complete. */
+  for (unsigned i = 0; i < 1000; i++) {
+    if (Fx3ReadReg32(reg) & mask)
+      return 1;
+    Fx3UtilDelayUs(1);
+  }
+  Fx3UartTxString("Endpoint reset timeout\n");
+  return 0;
+}
+
+void Fx3UsbSetInEndpointNak(uint8_t ep, int nak)
+{
+  if (nak) {
+    Fx3SetReg32(FX3_PROT_EPI_CS1 + (ep << 2), FX3_PROT_EPI_CS1_NRDY);
+    Fx3SetReg32(FX3_DEV_EPI_CS + (ep << 2), FX3_DEV_EPI_CS_NAK);
+  } else {
+    Fx3ClearReg32(FX3_PROT_EPI_CS1 + (ep << 2), FX3_PROT_EPI_CS1_NRDY);
+    Fx3ClearReg32(FX3_DEV_EPI_CS + (ep << 2), FX3_DEV_EPI_CS_NAK);
+  }
+}
+
+int Fx3UsbClearInEndpointHalt(uint8_t ep, Fx3UsbSpeed_t s)
+{
+  if (!ep || ep > 15)
+    return 0;
+
+  if (s == FX3_USB_SUPER_SPEED) {
+    uint32_t reg = FX3_PROT_EPI_CS1 + (ep << 2);
+    uint32_t cs = Fx3ReadReg32(reg);
+    if (!(cs & FX3_PROT_EPI_CS1_VALID))
+      return 0;
+    /* Reset endpoint state, clear halt, then reset the packet sequence.
+     * This follows CyU3PUsbStall(ep, false, true) in Cypress SDK 1.3.5.
+     */
+    Fx3WriteReg32(reg, cs | FX3_PROT_EPI_CS1_EP_RESET);
+    Fx3UtilDelayUs(1);
+    Fx3WriteReg32(reg, cs & ~(FX3_PROT_EPI_CS1_EP_RESET |
+			     FX3_PROT_EPI_CS1_STALL));
+    Fx3WriteReg32(FX3_PROT_SEQ_NUM, FX3_PROT_SEQ_NUM_COMMAND |
+		  FX3_PROT_SEQ_NUM_DIR | ep);
+    return WaitEndpointRegister(FX3_PROT_SEQ_NUM, FX3_PROT_SEQ_NUM_SEQ_VALID);
+  }
+
+  uint32_t reg = FX3_DEV_EPI_CS + (ep << 2);
+  if (!(Fx3ReadReg32(reg) & FX3_DEV_EPI_CS_VALID))
+    return 0;
+  Fx3ClearReg32(reg, FX3_DEV_EPI_CS_STALL);
+  Fx3WriteReg32(FX3_DEV_TOGGLE, FX3_DEV_TOGGLE_IO | ep);
+  if (!WaitEndpointRegister(FX3_DEV_TOGGLE, FX3_DEV_TOGGLE_TOGGLE_VALID))
+    return 0;
+  Fx3WriteReg32(FX3_DEV_TOGGLE, FX3_DEV_TOGGLE_IO | FX3_DEV_TOGGLE_R | ep);
+  return WaitEndpointRegister(FX3_DEV_TOGGLE, FX3_DEV_TOGGLE_TOGGLE_VALID);
 }

@@ -26,4 +26,13 @@
 
 extern void Fx3UtilDelayUs(uint32_t delay_us);
 
+/* Poll a register until (value & mask) == expected, for up to about
+ * timeout_us microseconds.  Returns 1 when the condition was met and 0
+ * on timeout.  Hardware handshakes must never spin forever: a block
+ * that stays stuck would otherwise take the whole firmware off the USB
+ * bus and need a physical reset.
+ */
+extern int Fx3UtilPollReg32(uint32_t reg, uint32_t mask, uint32_t expected,
+			    uint32_t timeout_us);
+
 #endif /* BSP_UTIL_H_ */

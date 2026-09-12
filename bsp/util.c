@@ -21,6 +21,7 @@
 
 #include <bsp/util.h>
 #include <bsp/gctl.h>
+#include <bsp/regaccess.h>
 
 #include <errno.h>
 
@@ -29,6 +30,17 @@ void Fx3UtilDelayUs(uint32_t delay_us)
   /* Each loop is 4 instruction cycles */
   uint32_t cnt = delay_us * (CPU_CLK / 4 / 1000000);
   __asm__ __volatile__("1: subs %0,%0,#1; bcs 1b" : "=r"(cnt) : "0"(cnt) : "cc");
+}
+
+int Fx3UtilPollReg32(uint32_t reg, uint32_t mask, uint32_t expected,
+		     uint32_t timeout_us)
+{
+  for (uint32_t i = 0; i < timeout_us; i++) {
+    if ((Fx3ReadReg32(reg) & mask) == expected)
+      return 1;
+    Fx3UtilDelayUs(1);
+  }
+  return 0;
 }
 
 void exit(int status)

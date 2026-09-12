@@ -344,10 +344,14 @@ void stop_acquisition(void)
     ulpi_dma_armed = 0;
   }
 #else
+  /* Quiesce USB before flushing DMA/EPM; a packet may still be in flight. */
+  Fx3GpifStop();
+  Fx3GpifInvalidate();
+  Fx3UsbSetInEndpointNak(2, 1);
+  Fx3UtilDelayUs(125);
   Fx3DmaAbortSocket(FX3_PIB_DMA_SCK(0));
   Fx3DmaAbortSocket(FX3_PIB_DMA_SCK(1));
   Fx3DmaAbortSocket(FX3_UIB_DMA_SCK(2));
-  Fx3GpifStop();
 #endif
   Fx3GpifPibStop();
 #ifdef FX3_ULPI_SNIFFER
@@ -486,10 +490,12 @@ void start_acquisition(uint8_t bits, uint32_t delay, uint16_t clock_divisor_x2,
   Fx3GpifStart(ULPI_ACQ_START, 0);
   ulpi_acquisition_active = 1;
 #else
-  Fx3GpifStart((delay < 2? delay : 2), 0);
   Fx3DmaStartProducer(FX3_PIB_DMA_SCK(1), dma_buffer_descriptor[1], 0, 0);
   Fx3DmaStartProducer(FX3_PIB_DMA_SCK(0), dma_buffer_descriptor[0], 0, 0);
   Fx3DmaStartConsumer(FX3_UIB_DMA_SCK(2), dma_buffer_descriptor[0], 0, 0);
+  Fx3UsbSetInEndpointNak(2, 0);
+  /* Arm the entire DMA path before GPIF can write its first sample. */
+  Fx3GpifStart((delay < 2? delay : 2), 0);
 #endif
 }
 
