@@ -226,10 +226,13 @@ static void Fx3UsbEnablePhy(void)
   Fx3WriteReg32(FX3_VIC_INT_ENABLE, (1UL << FX3_IRQ_USB_CORE));
   Fx3SetReg32(FX3_GCTL_CONTROL, FX3_GCTL_CONTROL_USB_POWER_EN);
 
-  /* Setup LNK for superspeed */
+  /* Reject host U1/U2 requests: this driver has no low-power link handling.
+   * AUTO_U1/AUTO_U2 can accept entry even though EP0 rejects U1/U2_ENABLE,
+   * This caused a reset loop during Windows SuperSpeed enumeration.
+   */
   Fx3WriteReg32(FX3_LNK_DEVICE_POWER_CONTROL,
-		FX3_LNK_DEVICE_POWER_CONTROL_AUTO_U2 |
-		FX3_LNK_DEVICE_POWER_CONTROL_AUTO_U1);
+		FX3_LNK_DEVICE_POWER_CONTROL_NO_U2 |
+		FX3_LNK_DEVICE_POWER_CONTROL_NO_U1);
   Fx3WriteReg32(0xe003309c, 10000);
   Fx3WriteReg32(0xe0033080, 10000);
   Fx3WriteReg32(0xe0033084, 0x00fa004b);
@@ -702,4 +705,60 @@ void Fx3UsbFlushInEndpoint(uint8_t ep)
   Fx3SetReg32(FX3_EEPM_ENDPOINT+(ep<<2), FX3_EEPM_ENDPOINT_SOCKET_FLUSH);
   Fx3UtilDelayUs(5);
   Fx3ClearReg32(FX3_EEPM_ENDPOINT+(ep<<2), FX3_EEPM_ENDPOINT_SOCKET_FLUSH);
+}
+
+static int WaitEndpointRegister(uint32_t reg, uint32_t mask)
+{
+  /* Do not hang the setup ISR if the endpoint reset cannot complete. */
+  for (unsigned i = 0; i < 1000; i++) {
+    if (Fx3ReadReg32(reg) & mask)
+      return 1;
+    Fx3UtilDelayUs(1);
+  }
+  Fx3UartTxString("Endpoint reset timeout\n");
+  return 0;
+}
+
+void Fx3UsbSetInEndpointNak(uint8_t ep, int nak)
+{
+  if (nak) {
+    Fx3SetReg32(FX3_PROT_EPI_CS1 + (ep << 2), FX3_PROT_EPI_CS1_NRDY);
+    Fx3SetReg32(FX3_DEV_EPI_CS + (ep << 2), FX3_DEV_EPI_CS_NAK);
+  } else {
+    Fx3ClearReg32(FX3_PROT_EPI_CS1 + (ep << 2), FX3_PROT_EPI_CS1_NRDY);
+    Fx3ClearReg32(FX3_DEV_EPI_CS + (ep << 2), FX3_DEV_EPI_CS_NAK);
+  }
+}
+
+int Fx3UsbClearInEndpointHalt(uint8_t ep, Fx3UsbSpeed_t s)
+{
+  if (!ep || ep > 15)
+    return 0;
+
+  if (s == FX3_USB_SUPER_SPEED) {
+    uint32_t reg = FX3_PROT_EPI_CS1 + (ep << 2);
+    uint32_t cs = Fx3ReadReg32(reg);
+    if (!(cs & FX3_PROT_EPI_CS1_VALID))
+      return 0;
+    /* Reset endpoint state, clear halt, then reset the packet sequence.
+     * This follows CyU3PUsbStall(ep, false, true) in Cypress SDK 1.3.5.
+     */
+    Fx3WriteReg32(reg, cs | FX3_PROT_EPI_CS1_EP_RESET);
+    Fx3UtilDelayUs(1);
+    Fx3WriteReg32(reg, cs & ~(FX3_PROT_EPI_CS1_EP_RESET |
+			     FX3_PROT_EPI_CS1_STALL));
+    Fx3WriteReg32(FX3_PROT_SEQ_NUM, FX3_PROT_SEQ_NUM_COMMAND |
+		  FX3_PROT_SEQ_NUM_DIR | ep);
+    return WaitEndpointRegister(FX3_PROT_SEQ_NUM, FX3_PROT_SEQ_NUM_SEQ_VALID);
+  }
+
+  uint32_t reg = FX3_DEV_EPI_CS + (ep << 2);
+  if (!(Fx3ReadReg32(reg) & FX3_DEV_EPI_CS_VALID))
+    return 0;
+  Fx3ClearReg32(reg, FX3_DEV_EPI_CS_STALL);
+  Fx3WriteReg32(FX3_DEV_TOGGLE, FX3_DEV_TOGGLE_IO | ep);
+  if (!WaitEndpointRegister(FX3_DEV_TOGGLE, FX3_DEV_TOGGLE_TOGGLE_VALID))
+    return 0;
+  Fx3WriteReg32(FX3_DEV_TOGGLE, FX3_DEV_TOGGLE_IO | FX3_DEV_TOGGLE_R | ep);
+  return WaitEndpointRegister(FX3_DEV_TOGGLE, FX3_DEV_TOGGLE_TOGGLE_VALID);
 }

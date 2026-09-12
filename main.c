@@ -170,6 +170,19 @@ static void SetupData(uint8_t request_type, uint8_t request, uint16_t value,
     goto stall;
 
   switch(request) {
+  case FX3_USB_STD_REQUEST_CLEAR_FEATURE:
+    if (request_type != (FX3_USB_REQTYPE_OUT | FX3_USB_REQTYPE_TYPE_STD |
+			 FX3_USB_REQTYPE_TGT_EP) || value != 0 ||
+	index != 0x82 || length != 0)
+      goto stall;
+    /* WinUSB may clear EP_HALT when cancelling outstanding bulk reads. */
+    stop_acquisition();
+    if (!Fx3UsbClearInEndpointHalt(2, s))
+      goto stall;
+    Fx3UartTxString("CLEAR_HALT EP82 complete\n");
+    Fx3UsbUnstallEp0(s);
+    return;
+
   case FX3_USB_STD_REQUEST_GET_DESCRIPTOR:
     if (request_type !=
 	(FX3_USB_REQTYPE_IN | FX3_USB_REQTYPE_TYPE_STD | FX3_USB_REQTYPE_TGT_DEVICE))
