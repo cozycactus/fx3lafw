@@ -85,6 +85,7 @@ static void Fx3DmaFillDescriptor(uint16_t descriptor, uint32_t buffer,
     (rdchain << FX3_DSCR_CHAIN_RD_NEXT_DSCR_SHIFT);
 
   Fx3CacheCleanDCacheEntry(desc);
+  Fx3CacheDrainWriteBuffer();
 }
 
 static void Fx3DmaTransferStart(uint32_t socket, uint16_t descriptor,
@@ -105,6 +106,15 @@ static void Fx3DmaTransferStart(uint32_t socket, uint16_t descriptor,
 
   Fx3SetReg32(socket + FX3_SCK_STATUS,
 	      FX3_SCK_STATUS_GO_ENABLE);
+  /* Complete socket configuration before GPIF or another socket can run. */
+  Fx3CacheDrainWriteBuffer();
+  if (!(status & FX3_SCK_STATUS_UNIT)) {
+    /* GO_ENABLE is a request; GPIF must wait for the socket to be active.
+     * Single-buffer EP0 transfers instead wait for their completion event.
+     */
+    while (!(Fx3ReadReg32(socket + FX3_SCK_STATUS) & FX3_SCK_STATUS_ENABLED))
+      ;
+  }
 }
 
 static void Fx3DmaWaitForEvent(uint32_t socket, uint32_t event)

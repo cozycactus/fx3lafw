@@ -2,6 +2,7 @@
 #include <bsp/dma.h>
 #include <bsp/usb.h>
 #include <bsp/uart.h>
+#include <bsp/util.h>
 #include <bsp/regaccess.h>
 #include <rdb/dma.h>
 #include <rdb/gpif.h>
@@ -198,10 +199,14 @@ static void uart_tx_u8_dec(uint8_t value)
 
 void stop_acquisition(void)
 {
+  /* Quiesce USB before flushing DMA/EPM; a packet may still be in flight. */
+  Fx3GpifStop();
+  Fx3GpifInvalidate();
+  Fx3UsbSetInEndpointNak(2, 1);
+  Fx3UtilDelayUs(125);
   Fx3DmaAbortSocket(FX3_PIB_DMA_SCK(0));
   Fx3DmaAbortSocket(FX3_PIB_DMA_SCK(1));
   Fx3DmaAbortSocket(FX3_UIB_DMA_SCK(2));
-  Fx3GpifStop();
   Fx3GpifPibStop();
   Fx3UsbFlushInEndpoint(2);
 }
@@ -253,11 +258,12 @@ void start_acquisition(uint8_t bits, uint32_t delay, uint16_t clock_divisor_x2,
 		   functions, sizeof(functions)/sizeof(functions[0]),
 		   &registers);
 
-  Fx3GpifStart((delay < 2? delay : 2), 0);
-
   Fx3DmaStartProducer(FX3_PIB_DMA_SCK(1), dma_buffer_descriptor[1], 0, 0);
   Fx3DmaStartProducer(FX3_PIB_DMA_SCK(0), dma_buffer_descriptor[0], 0, 0);
   Fx3DmaStartConsumer(FX3_UIB_DMA_SCK(2), dma_buffer_descriptor[0], 0, 0);
+  Fx3UsbSetInEndpointNak(2, 0);
+  /* Arm the entire DMA path before GPIF can write its first sample. */
+  Fx3GpifStart((delay < 2? delay : 2), 0);
 }
 
 void setup_acquisition(void)
