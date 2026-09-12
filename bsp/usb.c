@@ -25,6 +25,7 @@
 #include <bsp/irq.h>
 #include <bsp/util.h>
 #include <bsp/uart.h>
+#include <bsp/gctl.h>
 #include <rdb/gctl.h>
 #include <rdb/uib.h>
 #include <rdb/uibin.h>
@@ -37,6 +38,100 @@ static void Fx3UsbUsbCoreIsr(void) __attribute__ ((isr ("IRQ")));
 static void Fx3UsbGctlPowerIsr(void) __attribute__ ((isr ("IRQ")));
 
 /* SuperSpeed PHY register handshake: bit 16 acknowledges a request. */
+volatile uint8_t Fx3UsbVbusSeen;
+
+static void Fx3UsbEnablePhy(void);
+
+volatile uint32_t Fx3UsbEvtSuspend;
+volatile uint32_t Fx3UsbEvtResume;
+volatile uint32_t Fx3UsbEvtReset;
+volatile uint32_t Fx3UsbEvtLinkDown;
+volatile uint32_t Fx3UsbEvtLinkUp;
+
+volatile uint8_t Fx3UsbVbusPresent;
+volatile uint8_t Fx3UsbReconnectPending;
+volatile uint32_t Fx3UsbEvtSetup;
+volatile uint32_t Fx3UsbEvtReconnect;
+
+/*
+ * A port that lost and restored VBUS (host sleep, hub power event) leaves
+ * the link down: the VBUS interrupt fires, but nothing ever brings the PHY
+ * back up, so the host cannot enumerate the device again until it is
+ * replugged.  Re-enable the PHY when VBUS returns, and if the host still
+ * does not talk to us shortly after that, reset the chip: the board then
+ * comes back as the FX3 bootloader, which is always enumerable.
+ */
+#define FX3_USB_HOST_SILENT_RESET_MS 10000UL
+
+static volatile uint32_t host_silent_ms;
+static volatile uint32_t host_silent_setup_count;
+static volatile uint8_t host_silent_armed;
+
+void Fx3UsbServiceReconnect(void)
+{
+  if (!Fx3UsbReconnectPending)
+    return;
+
+  Fx3UsbReconnectPending = 0;
+  Fx3UsbEvtReconnect++;
+  Fx3UartTxString("VBUS back: re-enabling the PHY\n");
+  Fx3UartTxFlush();
+  Fx3UsbEnablePhy();
+
+  /* Give the host a moment to enumerate us again. */
+  host_silent_setup_count = Fx3UsbEvtSetup;
+  host_silent_ms = 0;
+  host_silent_armed = 1;
+}
+
+/*
+ * A host that suspends the port and never resumes it (sleep, or a port
+ * that lost its state) leaves the board powered but invisible: the RX/TX
+ * path stays down and only a physical replug brings it back.  Count the
+ * suspended time from the main loop and reset the chip when it grows past
+ * the limit, so the board returns as the FX3 bootloader, which the host
+ * can always enumerate and reload.
+ */
+#define FX3_USB_SUSPEND_RESET_MS 60000UL
+
+static volatile uint32_t usb_suspend_ms;
+static volatile uint8_t usb_suspended;
+
+void Fx3UsbSuspendTick(uint32_t ms)
+{
+  if (usb_suspended) {
+    usb_suspend_ms += ms;
+    if (usb_suspend_ms >= FX3_USB_SUSPEND_RESET_MS) {
+      Fx3UartTxString("USB suspended too long; self reset\n");
+      Fx3UartTxFlush();
+      Fx3GctlHardReset();
+    }
+  }
+
+  if (host_silent_armed) {
+    host_silent_ms += ms;
+    if (Fx3UsbEvtSetup != host_silent_setup_count) {
+      host_silent_armed = 0;
+    } else if (host_silent_ms >= FX3_USB_HOST_SILENT_RESET_MS) {
+      Fx3UartTxString("No host after VBUS returned; self reset\n");
+      Fx3UartTxFlush();
+      Fx3GctlHardReset();
+    }
+  }
+}
+
+void Fx3UsbGetEvents(Fx3UsbEvents_t *events)
+{
+  events->suspend = Fx3UsbEvtSuspend;
+  events->resume = Fx3UsbEvtResume;
+  events->reset = Fx3UsbEvtReset;
+  events->link_down = Fx3UsbEvtLinkDown;
+  events->link_up = Fx3UsbEvtLinkUp;
+  events->setup = Fx3UsbEvtSetup;
+  events->reconnect = Fx3UsbEvtReconnect;
+  events->vbus_present = Fx3UsbVbusPresent;
+}
+
 static int Fx3UsbWaitPhyBit(int set)
 {
   return Fx3UtilPollReg32(0xe0033028, 1UL << 16,
@@ -425,10 +520,12 @@ static void Fx3UsbUsbCoreIsr(void)
     }
     if (lnk_req & FX3_LNK_INTR_LTSSM_DISCONNECT) {
       Fx3UartTxString("    LTSSM_DISCONNECT\n");
+      Fx3UsbEvtLinkDown++;
       Fx3UsbConnectHighSpeed();
     }
     if (lnk_req & FX3_LNK_INTR_LTSSM_CONNECT) {
       Fx3UartTxString("    LTSSM_CONNECT\n");
+      Fx3UsbEvtLinkUp++;
       Fx3UsbConnectSuperSpeed();
     }
     if (lnk_req & FX3_LNK_INTR_LGO_U3) {
@@ -447,12 +544,18 @@ static void Fx3UsbUsbCoreIsr(void)
 	{
 		Fx3WriteReg32(FX3_DEV_CTRL_INTR, (1UL << 8));
 		Fx3UartTxString("    resume\n");
+		Fx3UsbEvtResume++;
+		usb_suspended = 0;
+		usb_suspend_ms = 0;
 		Fx3SetReg32(FX3_DEV_CTRL_INTR_MASK, (1UL << 8));
 	}
 	if (dev_ctrl_req & (1UL << 2))
 	{
 		Fx3WriteReg32(FX3_DEV_CTRL_INTR, (1UL << 2));
 		Fx3UartTxString("    suspend\n");
+		Fx3UsbEvtSuspend++;
+		usb_suspended = 1;
+		usb_suspend_ms = 0;
 		Fx3SetReg32(FX3_DEV_CTRL_INTR_MASK, (1UL << 2));
 	}
 
@@ -460,6 +563,9 @@ static void Fx3UsbUsbCoreIsr(void)
 	{
 		Fx3WriteReg32(FX3_DEV_CTRL_INTR, (1UL << 3));
 		Fx3UartTxString("    reset\n");
+		Fx3UsbEvtReset++;
+		usb_suspended = 0;
+		usb_suspend_ms = 0;
 		Fx3SetReg32(FX3_DEV_CTRL_INTR_MASK, (1UL << 3));
 	}
 	if (dev_ctrl_req & (1UL << 4))
@@ -535,7 +641,14 @@ static void Fx3UsbGctlPowerIsr(void)
   Fx3UartTxString("Fx3UsbGctlPowerIsr\n");
 
   if (req & FX3_GCTL_IOPOWER_INTR_VBUS) {
-    Fx3UartTxString("  VBUS\n");
+    if (Fx3ReadReg32(FX3_GCTL_IOPOWER) & FX3_GCTL_IOPOWER_VBUS) {
+      Fx3UartTxString("  VBUS present\n");
+      Fx3UsbVbusPresent = 1;
+      Fx3UsbReconnectPending = 1;
+    } else {
+      Fx3UartTxString("  VBUS lost\n");
+      Fx3UsbVbusPresent = 0;
+    }
   }
 
   Fx3WriteReg32(FX3_VIC_ADDRESS, 0);

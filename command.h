@@ -4,6 +4,7 @@
 #define CMD_STOP			0xb3
 #define CMD_GET_ACQ_STATUS		0xb4
 #define CMD_RESET			0xb5
+#define CMD_GET_USB_EVENTS		0xb6
 
 #define CMD_START_FLAGS_SUPERWIDE_POS   3
 #define CMD_START_FLAGS_CLK_CTL2_POS    4
@@ -34,6 +35,18 @@ struct cmd_start_acquisition {
         uint8_t flags;
         uint8_t sample_delay_h;
         uint8_t sample_delay_l;
+};
+
+/* USB suspend/resume and link events since power-up. */
+struct usb_events {
+        uint32_t suspend;
+        uint32_t resume;
+        uint32_t reset;
+        uint32_t link_down;
+        uint32_t link_up;
+        uint32_t setup;
+        uint32_t reconnect;
+        uint32_t vbus_present;
 };
 
 struct acquisition_status {

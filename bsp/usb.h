@@ -96,6 +96,26 @@ extern void Fx3UsbDmaDataIn(uint8_t ep, const volatile void *buffer,
 extern void Fx3UsbEnableInEndpoint(uint8_t ep, Fx3UsbEndpointType_t type,
 				   uint16_t pktsize);
 extern void Fx3UsbFlushInEndpoint(uint8_t ep);
+
+typedef struct {
+  uint32_t suspend;
+  uint32_t resume;
+  uint32_t reset;
+  uint32_t link_down;
+  uint32_t link_up;
+  uint32_t setup;
+  uint32_t reconnect;
+  uint32_t vbus_present;
+} Fx3UsbEvents_t;
+
+extern volatile uint32_t Fx3UsbEvtSetup;
+extern volatile uint32_t Fx3UsbEvtReconnect;
+extern volatile uint8_t Fx3UsbVbusPresent;
+extern void Fx3UsbGetEvents(Fx3UsbEvents_t *events);
+/* Re-enable the PHY after VBUS returned; call from the main loop. */
+extern void Fx3UsbServiceReconnect(void);
+/* Advance the suspended-time watchdog; call periodically with elapsed ms. */
+extern void Fx3UsbSuspendTick(uint32_t ms);
 /* Caller must stop the endpoint's DMA producer before clearing its halt. */
 extern int Fx3UsbClearInEndpointHalt(uint8_t ep, Fx3UsbSpeed_t s);
 extern void Fx3UsbSetInEndpointNak(uint8_t ep, int nak);

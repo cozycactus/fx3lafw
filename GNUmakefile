@@ -21,13 +21,13 @@ VPATH = bsp
 OBJS = main.o usb.o gpif.o gctl.o gpio.o uart.o util.o dma.o irq.o cache.o vectors.o descriptors.o acquisition.o
 
 all : fx3lafw-cypress-fx3.fw
-host-tools : tools/fx3lafw-reset tools/fx3lafw-status
+host-tools : tools/fx3lafw-reset tools/fx3lafw-status tools/fx3lafw-usb-events
 
 fx3lafw-cypress-fx3.fw : fx3lafw.elf
 	python3 elf2img.py $< $@
 
 clean :
-	rm -f fx3lafw.img fx3lafw.elf fx3lafw.map tools/fx3lafw-reset tools/fx3lafw-status $(OBJS) $(OBJS:.o=.d)
+	rm -f fx3lafw.img fx3lafw.elf fx3lafw.map tools/fx3lafw-reset tools/fx3lafw-status tools/fx3lafw-usb-events $(OBJS) $(OBJS:.o=.d)
 
 fx3lafw.elf : $(OBJS)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^
@@ -36,6 +36,9 @@ tools/fx3lafw-reset : tools/fx3lafw-reset.c command.h
 	$(HOST_CC) -std=c11 -Wall -Wextra -Werror $(LIBUSB_CFLAGS) -o $@ $< $(LIBUSB_LIBS)
 
 tools/fx3lafw-status : tools/fx3lafw-status.c command.h
+	$(HOST_CC) -std=c11 -Wall -Wextra -Werror $(LIBUSB_CFLAGS) -o $@ $< $(LIBUSB_LIBS)
+
+tools/fx3lafw-usb-events : tools/fx3lafw-usb-events.c command.h
 	$(HOST_CC) -std=c11 -Wall -Wextra -Werror $(LIBUSB_CFLAGS) -o $@ $< $(LIBUSB_LIBS)
 
 -include $(OBJS:.o=.d)

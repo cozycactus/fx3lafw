@@ -134,6 +134,27 @@ static void VendorCommand(uint8_t request_type, uint8_t request, uint16_t value,
     Fx3UsbUnstallEp0(s);
     Fx3UsbDmaDataIn(0, DmaBuf, sizeof(struct acquisition_status));
     return;
+  case CMD_GET_USB_EVENTS: {
+    if (request_type !=
+	(FX3_USB_REQTYPE_IN | FX3_USB_REQTYPE_TYPE_VENDOR | FX3_USB_REQTYPE_TGT_DEVICE))
+      goto stall;
+    if (value != 0 || index != 0 || length != sizeof(struct usb_events))
+      goto stall;
+    Fx3UartTxString("CMD_GET_USB_EVENTS\n");
+    volatile struct usb_events *events =
+      (volatile struct usb_events *)DmaBuf;
+    Fx3UsbEvents_t current;
+    Fx3UsbGetEvents(&current);
+    events->suspend = current.suspend;
+    events->resume = current.resume;
+    events->reset = current.reset;
+    events->link_down = current.link_down;
+    events->link_up = current.link_up;
+    Fx3CacheCleanDCacheEntry(DmaBuf);
+    Fx3UsbUnstallEp0(s);
+    Fx3UsbDmaDataIn(0, DmaBuf, sizeof(struct usb_events));
+    return;
+  }
   case CMD_GET_REVID_VERSION:
     if (request_type !=
 	(FX3_USB_REQTYPE_IN | FX3_USB_REQTYPE_TYPE_VENDOR | FX3_USB_REQTYPE_TGT_DEVICE))
@@ -160,6 +181,7 @@ static void SetupData(uint8_t request_type, uint8_t request, uint16_t value,
 	   (unsigned)request_type, (unsigned)request,
 	   (unsigned)value, (unsigned)index, (unsigned)length);
   Fx3UartTxString(buf);
+  Fx3UsbEvtSetup++;
 
   if ((request_type & FX3_USB_REQTYPE_TYPE_MASK) == FX3_USB_REQTYPE_TYPE_VENDOR) {
     VendorCommand(request_type, request, value, index, length, s);
@@ -259,10 +281,12 @@ int main(void)
   Fx3UsbConnect();
 
   for(;;) {
+    Fx3UsbServiceReconnect();
     poll_acquisition();
 
     Fx3GpioSetOutputValueSimple(54, 1);
     Fx3UtilDelayUs(500000);
+    Fx3UsbSuspendTick(500);
     if (!Fx3GpioGetInputValueSimple(45)) {
       Fx3UartTxString("BUTTON\n");
       Fx3UartTxFlush();
@@ -270,6 +294,7 @@ int main(void)
     }
     Fx3GpioSetOutputValueSimple(54, 0);
     Fx3UtilDelayUs(500000);
+    Fx3UsbSuspendTick(500);
   }
 }
 
