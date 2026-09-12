@@ -23,6 +23,7 @@
 #include <bsp/regaccess.h>
 #include <bsp/cache.h>
 #include <bsp/uart.h>
+#include <bsp/util.h>
 #include <rdb/dma.h>
 
 #define FX3_SCK_STATUS_DEFAULT			\
@@ -58,14 +59,33 @@ void Fx3DmaFreeDescriptor(uint16_t d)
   }
 }
 
+/* Bounded wait for a socket to reach the expected status.  A socket that
+ * never gets there must not wedge the firmware: report it on the debug
+ * UART and let the caller continue, so the host sees a short capture
+ * instead of a device that has dropped off the bus.
+ */
+static int Fx3DmaWaitSocketStatus(uint32_t socket, uint32_t mask,
+				  uint32_t expected, const char *what)
+{
+  for (unsigned i = 0; i < 10000; i++) {
+    if ((Fx3ReadReg32(socket + FX3_SCK_STATUS) & mask) == expected)
+      return 1;
+    Fx3UtilDelayUs(1);
+  }
+  Fx3UartTxString("DMA timeout: ");
+  Fx3UartTxString(what);
+  Fx3UartTxString("\n");
+  return 0;
+}
+
 void Fx3DmaAbortSocket(uint32_t socket)
 {
   Fx3ClearReg32(socket + FX3_SCK_STATUS,
 		FX3_SCK_STATUS_GO_ENABLE |
 		FX3_SCK_STATUS_WRAPUP);
   Fx3WriteReg32(socket + FX3_SCK_INTR, ~0);
-  while((Fx3ReadReg32(socket + FX3_SCK_STATUS) & FX3_SCK_STATUS_ENABLED))
-    ;
+  Fx3DmaWaitSocketStatus(socket, FX3_SCK_STATUS_ENABLED, 0,
+			 "socket disable");
 }
 
 static void Fx3DmaFillDescriptor(uint16_t descriptor, uint32_t buffer,
@@ -92,8 +112,8 @@ static void Fx3DmaTransferStart(uint32_t socket, uint16_t descriptor,
 				uint32_t status, uint32_t size, uint32_t count)
 {
   Fx3WriteReg32(socket + FX3_SCK_STATUS, FX3_SCK_STATUS_DEFAULT);
-  while((Fx3ReadReg32(socket + FX3_SCK_STATUS) & FX3_SCK_STATUS_ENABLED))
-    ;
+  Fx3DmaWaitSocketStatus(socket, FX3_SCK_STATUS_ENABLED, 0,
+			 "socket disable before start");
 
   Fx3WriteReg32(socket + FX3_SCK_STATUS, status);
   Fx3WriteReg32(socket + FX3_SCK_INTR, ~0UL);
@@ -112,14 +132,14 @@ static void Fx3DmaTransferStart(uint32_t socket, uint16_t descriptor,
     /* GO_ENABLE is a request; GPIF must wait for the socket to be active.
      * Single-buffer EP0 transfers instead wait for their completion event.
      */
-    while (!(Fx3ReadReg32(socket + FX3_SCK_STATUS) & FX3_SCK_STATUS_ENABLED))
-      ;
+    Fx3DmaWaitSocketStatus(socket, FX3_SCK_STATUS_ENABLED,
+			   FX3_SCK_STATUS_ENABLED, "socket enable");
   }
 }
 
 static void Fx3DmaWaitForEvent(uint32_t socket, uint32_t event)
 {
-  for(;;) {
+  for (unsigned i = 0; i < 100000; i++) {
     uint32_t status = Fx3ReadReg32(socket + FX3_SCK_INTR);
     if (status & FX3_SCK_INTR_ERROR) {
       Fx3UartTxString("DMA error\n");
@@ -127,9 +147,9 @@ static void Fx3DmaWaitForEvent(uint32_t socket, uint32_t event)
     }
     if (status & event)
       return;
-
-    /* timeout? */
+    Fx3UtilDelayUs(1);
   }
+  Fx3UartTxString("DMA event timeout\n");
 }
 
 void Fx3DmaFillDescriptorThrough(uint32_t prod_socket, uint32_t cons_socket,
