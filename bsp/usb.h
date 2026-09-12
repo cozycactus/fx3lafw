@@ -96,5 +96,8 @@ extern void Fx3UsbDmaDataIn(uint8_t ep, const volatile void *buffer,
 extern void Fx3UsbEnableInEndpoint(uint8_t ep, Fx3UsbEndpointType_t type,
 				   uint16_t pktsize);
 extern void Fx3UsbFlushInEndpoint(uint8_t ep);
+/* Caller must stop the endpoint's DMA producer before clearing its halt. */
+extern int Fx3UsbClearInEndpointHalt(uint8_t ep, Fx3UsbSpeed_t s);
+extern void Fx3UsbSetInEndpointNak(uint8_t ep, int nak);
 
 #endif /* BSP_USB_H_ */
