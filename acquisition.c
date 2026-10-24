@@ -314,11 +314,14 @@ static void ulpi_apply_core_phase(void)
   Fx3UtilDelayUs(1);
   Fx3SetReg32(FX3_PIB_DLL_CTRL, FX3_PIB_DLL_CTRL_DLL_RESET_N);
   Fx3UtilDelayUs(1);
-  if (ulpi_dll_config == ULPI_DLL_CONFIG_PHASE) {
-    while (!(Fx3ReadReg32(FX3_PIB_DLL_CTRL) &
-             FX3_PIB_DLL_CTRL_DLL_STAT))
-      ;
-  }
+  /* CMD_START runs this from the setup interrupt, and the PHY may not be
+   * supplying CLKOUT: bound the wait like Fx3GpifPibStartEx() does, so a
+   * missing clock shows up in the acquisition status instead of hanging
+   * the firmware. */
+  if (ulpi_dll_config == ULPI_DLL_CONFIG_PHASE &&
+      !Fx3UtilPollReg32(FX3_PIB_DLL_CTRL, FX3_PIB_DLL_CTRL_DLL_STAT,
+                        FX3_PIB_DLL_CTRL_DLL_STAT, 10000))
+    Fx3UartTxString("ULPI DLL lock timeout\n");
 }
 #endif
 
