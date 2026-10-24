@@ -113,9 +113,6 @@ struct acquisition_status {
         uint32_t uib_sck2_intr;
         uint32_t uib_sck2_dscr;
         uint32_t uib_sck2_count;
-        uint32_t eepm_cs;
-        uint32_t eepm_endpoint2;
-        uint32_t prot_epi_cs1;
         uint32_t pause_count;
         uint8_t pause_gpif_stat;
         uint8_t pause_gpif_state;
@@ -130,6 +127,12 @@ struct acquisition_status {
         uint32_t pause_uib_sck2_status;
         uint32_t pause_uib_sck2_dscr;
         uint32_t pause_uib_sck2_count;
+        /* Fields added later go here, at the end: the libsigrok driver
+         * reads the shorter layout above, and CMD_GET_ACQ_STATUS returns
+         * whatever prefix the host asks for. */
+        uint32_t eepm_cs;
+        uint32_t eepm_endpoint2;
+        uint32_t prot_epi_cs1;
 };
 
 struct ulpi_status {

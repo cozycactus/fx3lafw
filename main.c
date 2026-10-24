@@ -254,7 +254,8 @@ static void VendorCommand(uint8_t request_type, uint8_t request, uint16_t value,
     if (request_type !=
 	(FX3_USB_REQTYPE_IN | FX3_USB_REQTYPE_TYPE_VENDOR | FX3_USB_REQTYPE_TGT_DEVICE))
       goto stall;
-    if (value != 0 || index != 0 || length != sizeof(struct acquisition_status))
+    if (value != 0 || index != 0 || length == 0 ||
+	length > sizeof(struct acquisition_status))
       goto stall;
     Fx3UartTxString("CMD_GET_ACQ_STATUS\n");
     volatile struct acquisition_status *status =
@@ -269,7 +270,9 @@ static void VendorCommand(uint8_t request_type, uint8_t request, uint16_t value,
     Fx3CacheCleanDCacheEntry(DmaBuf + 64);
     Fx3CacheCleanDCacheEntry(DmaBuf + 96);
     Fx3UsbUnstallEp0(s);
-    Fx3UsbDmaDataIn(0, DmaBuf, sizeof(struct acquisition_status));
+    /* Older hosts know a shorter structure; send the prefix they asked
+     * for, the fields after it are newer additions. */
+    Fx3UsbDmaDataIn(0, DmaBuf, length);
     return;
   case CMD_GET_USB_EVENTS: {
     if (request_type !=
