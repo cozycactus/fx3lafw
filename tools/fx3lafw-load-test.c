@@ -1,3 +1,8 @@
+/* -std=c11 makes glibc hide usleep(); other C libraries ignore this. */
+#ifndef _DEFAULT_SOURCE
+#define _DEFAULT_SOURCE
+#endif
+
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>

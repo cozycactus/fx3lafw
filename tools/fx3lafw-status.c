@@ -6,6 +6,11 @@
  * Usage: fx3lafw-status [interval_ms] [max_polls]
  */
 
+/* -std=c11 makes glibc hide usleep(); other C libraries ignore this. */
+#ifndef _DEFAULT_SOURCE
+#define _DEFAULT_SOURCE
+#endif
+
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
