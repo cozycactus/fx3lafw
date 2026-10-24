@@ -81,10 +81,23 @@ typedef enum {
 struct Fx3UsbCallbacks {
   void (*sutok)(uint8_t request_type, uint8_t request, uint16_t value,
 		uint16_t index, uint16_t length, Fx3UsbSpeed_t s);
+  void (*status_stage)(Fx3UsbSpeed_t s);
 };
 
 extern void Fx3UsbInit(const struct Fx3UsbCallbacks *callbacks);
 extern void Fx3UsbConnect(void);
+/* Set once Fx3UsbConnect() saw VBUS and brought the PHY up. */
+extern volatile uint8_t Fx3UsbVbusSeen;
+/* Set once the host sent a setup packet. */
+extern volatile uint8_t Fx3UsbHostSeen;
+#ifdef FX3_ULPI_SNIFFER
+extern void Fx3UsbPoll(void);
+/* Reset the chip when the host re-enumerated the port without dropping
+ * VBUS and the link never came back; the sniffer has no periodic tick, so
+ * call this from every pass of its main loop instead of
+ * Fx3UsbServiceTick(). */
+extern void Fx3UsbLinkCheck(void);
+#endif
 extern void Fx3UsbStallEp0(Fx3UsbSpeed_t s);
 
 extern void Fx3UsbUnstallEp0(Fx3UsbSpeed_t s);

@@ -49,6 +49,15 @@ void Fx3GpioSetupSimple(uint8_t num, uint32_t config)
   }
 }
 
+void Fx3GpioReleaseSimple(uint8_t num)
+{
+  if (num < 61) {
+    Fx3WriteReg32(FX3_GPIO_SIMPLE + (num << 2), 0);
+    Fx3ClearReg32(FX3_GCTL_GPIO_SIMPLE + ((num & 32) >> 3),
+		  1UL << (num & 31));
+  }
+}
+
 void Fx3GpioSetupComplex(uint8_t num, uint32_t config, uint32_t timer,
 			 uint32_t period, uint32_t threshold)
 {

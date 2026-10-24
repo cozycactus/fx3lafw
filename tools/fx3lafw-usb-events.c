@@ -63,12 +63,14 @@ int main(int argc, char **argv)
 			continue;
 		}
 
-		/* The ULPI analyzer image shares the vendor request numbers for
-		 * a different command set, so only ask the analyzer image. */
+		/* Both firmware images of this project keep the USB event
+		 * counters, so accept either product name; other FX3 firmware
+		 * on the same VID/PID may use this request for something else. */
 		product_len = desc.iProduct ? libusb_get_string_descriptor_ascii(
 			handle, desc.iProduct, product, sizeof(product) - 1) : 0;
 		if (product_len <= 0 ||
-				strcmp((char *)product, "fx3lafw") != 0) {
+				(strcmp((char *)product, "fx3lafw") != 0 &&
+				 strcmp((char *)product, "fx3ulpifw") != 0)) {
 			libusb_close(handle);
 			handle = NULL;
 			continue;

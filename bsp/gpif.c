@@ -35,23 +35,31 @@ static void Fx3GpifPibIsr(void)
   uint32_t req = Fx3ReadReg32(FX3_PIB_INTR) & Fx3ReadReg32(FX3_PIB_INTR_MASK);
   Fx3WriteReg32(FX3_PIB_INTR, req);
 
+#ifndef FX3_ULPI_SNIFFER
   Fx3UartTxString("Fx3GpifPibIsr\n");
+#endif
 
   if (req & FX3_PIB_INTR_GPIF_ERR) {
+#ifndef FX3_ULPI_SNIFFER
     Fx3UartTxString("  GPIF ERROR\n");
-    /* Pause on error */
+#endif
+    /* Pause on error; ULPI acquisition poll resumes into WAIT. */
     Fx3SetReg32(FX3_GPIF_WAVEFORM_CTRL_STAT, FX3_GPIF_WAVEFORM_CTRL_STAT_PAUSE);
   }
 
   if (req & FX3_PIB_INTR_GPIF_INTERRUPT) {
+#ifndef FX3_ULPI_SNIFFER
     Fx3UartTxString("  GPIF\n");
+#endif
     uint32_t gpif_req = Fx3ReadReg32(FX3_GPIF_INTR) & Fx3ReadReg32(FX3_GPIF_INTR_MASK);
     Fx3WriteReg32(FX3_GPIF_INTR, gpif_req);
 
+#ifndef FX3_ULPI_SNIFFER
     if (gpif_req & FX3_GPIF_INTR_GPIF_INTR)
       Fx3UartTxString("    INTR\n");
     if (gpif_req & FX3_GPIF_INTR_GPIF_DONE)
       Fx3UartTxString("    DONE\n");
+#endif
   }
 
   Fx3WriteReg32(FX3_VIC_ADDRESS, 0);
@@ -63,6 +71,8 @@ void Fx3GpifStart(uint8_t state, uint8_t alpha)
   Fx3WriteReg32(FX3_GPIF_INTR, Fx3ReadReg32(FX3_GPIF_INTR));
   Fx3WriteReg32(FX3_GPIF_INTR_MASK,
 		FX3_GPIF_INTR_MASK_GPIF_INTR | FX3_GPIF_INTR_MASK_GPIF_DONE);
+  Fx3ClearReg32(FX3_GPIF_WAVEFORM_CTRL_STAT,
+		FX3_GPIF_WAVEFORM_CTRL_STAT_PAUSE);
   Fx3SetField32(FX3_GPIF_WAVEFORM_CTRL_STAT, ALPHA_INIT, alpha);
   Fx3SetReg32(FX3_GPIF_WAVEFORM_CTRL_STAT,
 	      FX3_GPIF_WAVEFORM_CTRL_STAT_WAVEFORM_VALID);
@@ -172,7 +182,27 @@ void Fx3GpifPibStart(uint16_t clock_divisor_x2, uint8_t external_clock)
    * overflows the write sockets.  Run the core at SYS_CLK/2, as Cypress'
    * own GPIF designs do.
    */
-  uint16_t core_divisor_x2 = external_clock ? 4 : clock_divisor_x2;
+  Fx3GpifPibStartEx(external_clock ? 4 : clock_divisor_x2, clock_divisor_x2);
+}
+
+static uint8_t pib_dll_locked;
+
+uint8_t Fx3GpifPibDllLocked(void)
+{
+  return pib_dll_locked;
+}
+
+/*
+ * The PIB DLL only locks once the external interface clock is running. On a
+ * ULPI build the PHY supplying that clock is powered from the same cable as
+ * the FX3, so a cold plug can reach Fx3GpifPibStart before CLKOUT exists.
+ * Spinning forever there hangs the firmware before Fx3UsbConnect(), and the
+ * board then looks permanently dead to the host. Bound the waits instead and
+ * let the acquisition report the missing lock.
+ */
+void Fx3GpifPibStartEx(uint16_t core_divisor_x2, uint16_t iface_divisor_x2)
+{
+  uint16_t clock_divisor_x2 = iface_divisor_x2;
 
   Fx3WriteReg32(FX3_GCTL_PIB_CORE_CLK,
 		(((core_divisor_x2 >> 1)-1) << FX3_GCTL_PIB_CORE_CLK_DIV_SHIFT) |
@@ -185,7 +215,7 @@ void Fx3GpifPibStart(uint16_t clock_divisor_x2, uint8_t external_clock)
   Fx3UtilDelayUs(10);
   Fx3SetReg32(FX3_PIB_POWER, FX3_PIB_POWER_RESETN);
   if (!Fx3UtilPollReg32(FX3_PIB_POWER, FX3_PIB_POWER_ACTIVE,
-			FX3_PIB_POWER_ACTIVE, 100000))
+			FX3_PIB_POWER_ACTIVE, 10000))
     Fx3UartTxString("PIB power timeout\n");
 
   Fx3ClearReg32(FX3_PIB_DLL_CTRL, FX3_PIB_DLL_CTRL_ENABLE);
@@ -203,8 +233,10 @@ void Fx3GpifPibStart(uint16_t clock_divisor_x2, uint8_t external_clock)
   Fx3UtilDelayUs(1);
   Fx3SetReg32(FX3_PIB_DLL_CTRL, FX3_PIB_DLL_CTRL_DLL_RESET_N);
   Fx3UtilDelayUs(1);
-  if (!Fx3UtilPollReg32(FX3_PIB_DLL_CTRL, FX3_PIB_DLL_CTRL_DLL_STAT,
-			FX3_PIB_DLL_CTRL_DLL_STAT, 100000))
+  pib_dll_locked = Fx3UtilPollReg32(FX3_PIB_DLL_CTRL,
+				    FX3_PIB_DLL_CTRL_DLL_STAT,
+				    FX3_PIB_DLL_CTRL_DLL_STAT, 10000);
+  if (!pib_dll_locked)
     Fx3UartTxString("PIB DLL lock timeout\n");
 
   Fx3WriteReg32(FX3_VIC_VEC_ADDRESS + (FX3_IRQ_GPIF_CORE<<2), Fx3GpifPibIsr);

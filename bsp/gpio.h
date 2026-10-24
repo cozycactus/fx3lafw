@@ -81,6 +81,7 @@ typedef enum {
 
 extern void Fx3GpioInitClock(void);
 extern void Fx3GpioSetupSimple(uint8_t num, uint32_t config);
+extern void Fx3GpioReleaseSimple(uint8_t num);
 extern void Fx3GpioSetupComplex(uint8_t num, uint32_t config, uint32_t timer,
 				uint32_t period, uint32_t threshold);
 extern void Fx3GpioSetOutputValueSimple(uint8_t num, uint8_t value);

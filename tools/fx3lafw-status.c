@@ -67,11 +67,13 @@ int main(int argc, char **argv)
 			usleep(interval_ms * 1000);
 			continue;
 		}
-		printf("%9.2f stat=%u state=%2u err=0x%04x intr=0x%08x "
+		printf("%9.2f stat=%u state=%2u pending=%u err=0x%04x "
+		       "intr=0x%08x "
 		       "p0=%7u(%3u) p1=%7u(%3u) u2=%8u(%3u) "
 		       "p0st=%08x p1st=%08x u2st=%08x pause=%u\n",
 		       now_ms() - t0,
 		       st.gpif_stat, st.gpif_state,
+		       !!(st.reserved & ACQ_STATUS_FLAGS_STOP_PENDING),
 		       st.pib_error, st.pib_intr,
 		       st.pib_sck0_count, st.pib_sck0_count / 24576,
 		       st.pib_sck1_count, st.pib_sck1_count / 24576,
